@@ -21,3 +21,7 @@ coverage/
 # IDE
 .vscode/
 .idea/
+
+# Database backups
+*.sql.bak
+backup.sql
