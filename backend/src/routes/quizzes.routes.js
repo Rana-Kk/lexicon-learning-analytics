@@ -1,0 +1,11 @@
+import {Router} from 'express';
+import {authenticate,authorize} from '../middleware/auth.js';
+import {getQuizzes,getQuizById,createQuiz,updateQuiz,deleteQuiz,getQuizResults,upsertQuizResult,bulkImportQuizResults} from '../controllers/quizzes.controller.js';
+const router=Router(); router.use(authenticate);
+router.get('/results',getQuizResults);
+router.post('/results',authorize('admin','teacher','student'),upsertQuizResult);
+router.post('/results/import',authorize('admin','teacher'),bulkImportQuizResults);router.get('/',getQuizzes); router.get('/:id',getQuizById);
+router.post('/',authorize('admin','teacher'),createQuiz);
+router.put('/:id',authorize('admin','teacher'),updateQuiz);
+router.delete('/:id',authorize('admin','teacher'),deleteQuiz);
+export default router;

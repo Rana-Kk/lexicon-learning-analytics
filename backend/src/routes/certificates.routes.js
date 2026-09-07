@@ -1,0 +1,2 @@
+import {Router} from 'express';import {authenticate,authorize} from '../middleware/auth.js';import {getCertificates,createCertificate,updateCertificate,deleteCertificate} from '../controllers/certificates.controller.js';
+const r=Router();r.use(authenticate);r.get('/',getCertificates);r.post('/',authorize('admin','teacher'),createCertificate);r.put('/:id',authorize('admin','teacher'),updateCertificate);r.delete('/:id',authorize('admin','teacher'),deleteCertificate);export default r;

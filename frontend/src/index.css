@@ -1,0 +1,232 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+
+  /* Lexicon Red */
+  --primary: #D90000;
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #F1F5F9;
+  --secondary-foreground: #334155;
+
+  --muted: #FEF2F2;
+  --muted-foreground: #64748B;
+
+  --accent: #D90000;
+  --accent-foreground: #FFFFFF;
+
+  --border: #E2E8F0;
+  --ring: #D90000;
+
+  --radius: 8px;
+  /* Status */
+  --status-present: #16A34A;
+  --status-late: #B45309;
+  --status-absent: #B91C1C;
+  --status-excused: #64748B;
+  --status-approved: #16A34A;
+  --status-draft: #B45309;
+  --status-rejected: #B91C1C;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Outfit', system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* Mono labels */
+.mono {
+  font-family: 'DM Mono', monospace;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* =========================
+   LEXICON AUTH EXPERIENCE
+========================= */
+.lexicon-login-page {
+  min-height: 100vh;
+  background: #f6f7f9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+.lexicon-login-shell {
+  width: min(1480px, 100%);
+  min-height: 860px;
+  display: grid;
+  grid-template-columns: minmax(420px, 0.98fr) minmax(560px, 1.08fr);
+  background: #fff;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 22px 65px rgba(15,23,42,.13);
+}
+.lexicon-login-visual { position: relative; min-height: 860px; overflow: hidden; }
+.lexicon-visual-image, .lexicon-visual-overlay { position: absolute; inset: 0; }
+.lexicon-visual-image { background: url('/classroom.jpg') center/cover no-repeat; transform: scale(1.03); }
+.lexicon-visual-overlay { background: linear-gradient(180deg, rgba(190,0,0,.82) 0%, rgba(190,0,0,.78) 48%, rgba(105,0,0,.94) 100%); }
+.lexicon-visual-content { position: relative; z-index: 1; height: 100%; padding: 66px 60px; color: #fff; display: flex; flex-direction: column; justify-content: space-between; }
+.lexicon-login-logo { width: 232px; height: auto; display: block; background: #fff; border-radius: 8px; padding: 10px 14px; object-fit: contain; }
+.lexicon-visual-copy { max-width: 620px; padding-bottom: 16px; }
+.lexicon-visual-copy h1 { margin: 0 0 20px; font-size: clamp(42px, 4.1vw, 68px); line-height: .98; letter-spacing: -2.5px; font-weight: 700; color: #fff; }
+.lexicon-visual-copy p { margin: 0; max-width: 500px; font-size: 21px; line-height: 1.5; color: rgba(255,255,255,.94); }
+.lexicon-features { display: flex; gap: 44px; margin-top: 52px; }
+.lexicon-features div { display: flex; flex-direction: column; gap: 9px; min-width: 120px; }
+.lexicon-features span { font-size: 30px; line-height: 1; }
+.lexicon-features strong { font-size: 15px; font-weight: 600; }
+.lexicon-login-panel { background: #fff; display: flex; justify-content: center; overflow: auto; }
+.lexicon-form-wrap { width: min(650px, 100%); padding: 82px 70px 52px; }
+.lexicon-form-wrap h2 { margin: 0; font-size: 58px; line-height: 1; letter-spacing: -2px; font-weight: 700; }
+.lexicon-welcome { margin: 14px 0 42px; color: #64748b; font-size: 17px; }
+.lexicon-login-form { display: flex; flex-direction: column; gap: 11px; }
+.lexicon-login-form > label, .lexicon-reset-form > label { font-size: 15px; font-weight: 600; color: #1e293b; margin-top: 6px; }
+.lexicon-input-wrap { position: relative; }
+.lexicon-input-wrap input { width: 100%; height: 56px; border: 1px solid #d8dee8; border-radius: 10px; background: #fff; padding: 0 48px; font-size: 16px; color: #172033; outline: none; transition: border-color .2s, box-shadow .2s; }
+.lexicon-input-wrap input:focus { border-color: #e00000; box-shadow: 0 0 0 3px rgba(224,0,0,.09); }
+.lexicon-input-icon { position: absolute; z-index: 1; left: 16px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 18px; }
+.lexicon-login-options { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 18px; }
+.lexicon-remember { display: flex; gap: 9px; align-items: center; color: #334155; font-size: 15px; cursor: pointer; }
+.lexicon-remember input { width: 19px; height: 19px; accent-color: #df0000; }
+.lexicon-forgot { border: 0; background: transparent; color: #d90000; font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px; }
+.lexicon-forgot:hover { text-decoration: underline; }
+.lexicon-login-button { height: 55px; border: 0; border-radius: 10px; background: #df0000; color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; transition: background .2s, transform .1s; }
+.lexicon-login-button:hover:not(:disabled) { background: #c80000; }
+.lexicon-login-button:active:not(:disabled) { transform: translateY(1px); }
+.lexicon-login-button:disabled { opacity: .65; cursor: not-allowed; }
+.lexicon-login-error { margin: 4px 0; padding: 12px 14px; border-radius: 9px; background: #fff0f0; color: #b91c1c; font-size: 14px; }
+.lexicon-signup { text-align: center; margin: 26px 0 30px; color: #475569; font-size: 15px; }
+.lexicon-signup span { color: #d90000; font-weight: 600; }
+.lexicon-divider { height: 1px; background: #e2e8f0; }
+.lexicon-demo-title { margin: 28px 0 13px; color: #718096; font-size: 15px; font-weight: 600; }
+.lexicon-demo-list { display: flex; flex-direction: column; gap: 10px; }
+.lexicon-demo-card { width: 100%; display: flex; align-items: center; gap: 14px; border: 1px solid #dfe5ed; border-radius: 12px; background: #fff; padding: 13px 14px; cursor: pointer; text-align: left; transition: border-color .2s, box-shadow .2s, transform .1s; }
+.lexicon-demo-card:hover { border-color: #cbd5e1; box-shadow: 0 5px 18px rgba(15,23,42,.07); transform: translateY(-1px); }
+.lexicon-avatar { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.lexicon-avatar.red { background: #fee2e2; color: #c81e1e; }
+.lexicon-avatar.orange { background: #ffedd5; color: #c2410c; }
+.lexicon-avatar.blue { background: #dbeafe; color: #2563eb; }
+.lexicon-demo-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lexicon-demo-info strong { color: #1e293b; font-size: 15px; }
+.lexicon-demo-info small { color: #718096; font-size: 14px; }
+.lexicon-role { padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.lexicon-role.red { color: #c81e1e; background: #fee2e2; }
+.lexicon-role.orange { color: #c2410c; background: #fff1e6; }
+.lexicon-role.blue { color: #2563eb; background: #e7f0ff; }
+.lexicon-login-footer { margin-top: 16px; color: #64748b; font-size: 13px; }
+
+.lexicon-reset-shell { width: min(560px, 100%); position: relative; }
+.lexicon-reset-brand { text-align: center; margin-bottom: 34px; }
+.lexicon-reset-brand img { width: 220px; background: #fff; border-radius: 8px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(15,23,42,.08); }
+.lexicon-back-button { border: 0; background: transparent; color: #64748b; cursor: pointer; margin-bottom: 15px; font-size: 14px; }
+.lexicon-back-button:hover { color: #d90000; }
+.lexicon-reset-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 42px; box-shadow: 0 20px 55px rgba(15,23,42,.1); }
+.lexicon-reset-icon { width: 52px; height: 52px; border-radius: 50%; background: #fee2e2; color: #d90000; display: grid; place-items: center; font-size: 26px; margin-bottom: 20px; }
+.lexicon-reset-card h1 { margin: 0 0 10px; font-size: 34px; }
+.lexicon-reset-card > p { margin: 0 0 28px; color: #64748b; line-height: 1.55; }
+.lexicon-reset-form { display: flex; flex-direction: column; gap: 10px; }
+.lexicon-reset-form input { height: 52px; border: 1px solid #d8dee8; border-radius: 10px; padding: 0 14px; font-size: 15px; outline: none; }
+.lexicon-reset-form input:focus { border-color: #df0000; box-shadow: 0 0 0 3px rgba(224,0,0,.09); }
+.lexicon-reset-form button { height: 52px; border: 0; border-radius: 10px; background: #df0000; color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; margin-top: 10px; }
+.lexicon-reset-form button:disabled { opacity: .65; cursor: not-allowed; }
+.lexicon-reset-success { margin-top: 14px; padding: 12px 14px; border-radius: 9px; background: #ecfdf3; color: #15803d; font-size: 14px; }
+
+@media (max-width: 1000px) {
+  .lexicon-login-page { padding: 0; justify-content: flex-start; }
+  .lexicon-login-shell { min-height: 100vh; border-radius: 0; grid-template-columns: 1fr; box-shadow: none; }
+  .lexicon-login-visual { min-height: 390px; }
+  .lexicon-visual-content { padding: 38px 32px; }
+  .lexicon-visual-copy { padding-bottom: 0; }
+  .lexicon-visual-copy h1 { font-size: 42px; }
+  .lexicon-visual-copy p { font-size: 16px; max-width: 420px; }
+  .lexicon-features { margin-top: 28px; gap: 20px; }
+  .lexicon-features div { min-width: 90px; }
+  .lexicon-form-wrap { padding: 48px 32px; }
+  .lexicon-login-footer { display: none; }
+}
+@media (max-width: 560px) {
+  .lexicon-login-visual { min-height: 330px; }
+  .lexicon-login-logo { width: 170px; }
+  .lexicon-visual-copy h1 { font-size: 34px; letter-spacing: -1px; }
+  .lexicon-visual-copy p { font-size: 14px; }
+  .lexicon-features { display: none; }
+  .lexicon-form-wrap { padding: 36px 22px; }
+  .lexicon-form-wrap h2 { font-size: 42px; }
+  .lexicon-login-options { align-items: flex-start; gap: 12px; }
+  .lexicon-reset-card { padding: 28px 22px; }
+}
+
+.lexicon-admin-contact-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 96px 16px 16px;
+  margin: 0 0 24px;
+  border: 1px solid #f1caca;
+  border-radius: 12px;
+  background: #fff7f7;
+}
+.lexicon-admin-contact-label { color: #8b3a3a; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lexicon-admin-contact-card strong { color: #1e293b; font-size: 15px; word-break: break-word; }
+.lexicon-copy-email { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); border: 1px solid #f0b5b5; border-radius: 8px; background: #fff; color: #c81e1e; padding: 7px 10px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.lexicon-copy-email:hover { background: #fff0f0; }
+.lexicon-reset-note { display: flex; flex-direction: column; gap: 6px; margin-top: 24px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 13px; line-height: 1.45; }
+.lexicon-reset-note strong { color: #334155; font-size: 14px; margin-bottom: 2px; }
+
+@media (max-width: 560px) {
+  .lexicon-admin-contact-card { padding-right: 16px; }
+  .lexicon-copy-email { position: static; transform: none; align-self: flex-start; margin-top: 4px; }
+}

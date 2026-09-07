@@ -1,0 +1,10 @@
+{
+  "description": "This web application streamlines educational management with user-friendly dashboards for admins, teachers, and students, enabling efficient data tracking and collaboration.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
