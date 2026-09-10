@@ -408,26 +408,33 @@ export const importStudents = asyncHandler(async (req, res) => {
 
       let groupId = row.group_id || null;
 
-      if (!groupId && row.course_id) {
-        const [groups] = await pool.query(
-          `SELECT id
-             FROM student_groups
-            WHERE course_id = ?
-            ORDER BY id DESC`,
-          [row.course_id]
-        );
+if (!groupId && row.group) {
+  const groupName = String(row.group).trim();
 
-        if (groups.length === 1) {
-          groupId = groups[0].id;
-        }
-      }
+  const [groups] = await pool.query(
+    'SELECT id FROM student_groups WHERE name = ? LIMIT 1',
+    [groupName]
+  );
 
-      if (groupId) {
-        await enrollInGroup(
-          result.insertId,
-          groupId
-        );
-      }
+  if (groups.length) {
+    groupId = groups[0].id;
+  }
+}
+
+if (!groupId && row.course_id) {
+  const [groups] = await pool.query(
+    'SELECT id FROM student_groups WHERE course_id = ? ORDER BY id DESC',
+    [row.course_id]
+  );
+
+  if (groups.length === 1) {
+    groupId = groups[0].id;
+  }
+}
+
+if (groupId) {
+  await enrollInGroup(result.insertId, groupId);
+}
 
       imported.push({
         id: result.insertId,
