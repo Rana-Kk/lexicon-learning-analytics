@@ -22,9 +22,22 @@ import tasksRoutes from './routes/tasks.routes.js';
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173', // Vite dev server default
+].filter(Boolean);
 
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow same-origin/non-browser requests (no Origin header, e.g. curl/Postman)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    }
+  },
+}));
+app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', coursesRoutes);
