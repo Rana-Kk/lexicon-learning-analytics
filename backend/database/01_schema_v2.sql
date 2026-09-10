@@ -1,24 +1,47 @@
 -- ============================================================================
 -- Lexicon Learning Analytics & AI Feedback Platform
--- Master Complete Schema & Seed Script (MySQL 8.0+)
+-- Schema v2 — revised against the full Erasmus+ Project Proposal
+-- MySQL 8
+--
+-- Key changes vs schema_revised.sql (v1):
+--   1. `groups` renamed to `student_groups` — GROUPS is a reserved word in
+--      MySQL 8.0+ (window frame syntax) and breaks CREATE TABLE without backticks.
+--   2. AI evaluation flow rebuilt: criterion_scores now hangs off ai_evaluations
+--      (per submission, matches the GitHub auto-analysis workflow) instead of
+--      assessment_scores. assessment_scores is now the "final gradebook" table,
+--      optionally traceable back to the submission that produced it.
+--   3. ai_evaluations.content (single TEXT blob) split into structured columns
+--      (strengths / areas_for_improvement / recommendations / suggested_next_steps)
+--      to match the UI, plus commit_sha/analyzed_at on submissions to support
+--      "AI automatically pulls the latest commit from GitHub and evaluates it".
+--   4. Added student CSV/Excel import (was missing entirely in v1) using a
+--      generic import_batches/import_rows pattern, reused for quiz import too.
+--   5. Added student_competency_history so "trend" (improving/stable/declining)
+--      is actually derivable from data, not just a field with nothing behind it.
+--   6. Added reverse-lookup indexes for FK columns that had none.
+--   7. Added optional SHOULD/NICE-TO-HAVE tables from the proposal, clearly
+--      marked, so the MUST-HAVE core stays uncluttered: course timeline,
+--      teacher feedback templates, risk indicator, notifications, audit log,
+--      cached PDF report metadata.
 -- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS lexicon_learning_analytics;
 USE lexicon_learning_analytics;
 
 -- ============================================================================
--- 1. USERS & AUTH  
+-- 1. USERS & AUTH  (proposal §3 roles, §28 security)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
-  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
   role ENUM('admin','teacher','student') NOT NULL,
+  -- Used to match a student to their submitted repos for automatic AI analysis.
   github_username VARCHAR(100) NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_users_github_username (github_username)
@@ -28,7 +51,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- 2. COURSES, GROUPS, TEAMS  (proposal §4)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS courses (
+CREATE TABLE courses (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
   description TEXT NULL,
@@ -37,7 +60,8 @@ CREATE TABLE IF NOT EXISTS courses (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS student_groups (
+-- Renamed from `groups`: GROUPS is a reserved word in MySQL 8 (window frames).
+CREATE TABLE student_groups (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   course_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(100) NOT NULL,
@@ -50,7 +74,7 @@ CREATE TABLE IF NOT EXISTS student_groups (
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE TABLE IF NOT EXISTS group_teachers (
+CREATE TABLE group_teachers (
   group_id BIGINT UNSIGNED NOT NULL,
   teacher_id BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (group_id, teacher_id),
@@ -61,7 +85,7 @@ CREATE TABLE IF NOT EXISTS group_teachers (
 );
 CREATE INDEX ix_group_teachers_teacher ON group_teachers (teacher_id);
 
-CREATE TABLE IF NOT EXISTS group_students (
+CREATE TABLE group_students (
   group_id BIGINT UNSIGNED NOT NULL,
   student_id BIGINT UNSIGNED NOT NULL,
   joined_at DATE NOT NULL,
@@ -73,7 +97,7 @@ CREATE TABLE IF NOT EXISTS group_students (
 );
 CREATE INDEX ix_group_students_student ON group_students (student_id);
 
-CREATE TABLE IF NOT EXISTS teams (
+CREATE TABLE teams (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   group_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(100) NOT NULL,
@@ -83,7 +107,7 @@ CREATE TABLE IF NOT EXISTS teams (
     FOREIGN KEY (group_id) REFERENCES student_groups(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS team_members (
+CREATE TABLE team_members (
   team_id BIGINT UNSIGNED NOT NULL,
   student_id BIGINT UNSIGNED NOT NULL,
   joined_at DATE NOT NULL,
@@ -97,9 +121,12 @@ CREATE INDEX ix_team_members_student ON team_members (student_id);
 
 -- ============================================================================
 -- 3. STUDENT / QUIZ IMPORT  (proposal §5 student import, §9 quiz import)
+-- Generic Upload -> Extract -> Review -> Confirm -> Import workflow, reused
+-- for both student rosters and quiz result sheets so the human-in-the-loop
+-- review UI can be built once.
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS import_batches (
+CREATE TABLE import_batches (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   import_type ENUM('student','quiz') NOT NULL,
   file_name VARCHAR(255) NOT NULL,
@@ -110,13 +137,14 @@ CREATE TABLE IF NOT EXISTS import_batches (
     FOREIGN KEY (imported_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE TABLE IF NOT EXISTS import_rows (
+CREATE TABLE import_rows (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   batch_id BIGINT UNSIGNED NOT NULL,
   row_no INT UNSIGNED NOT NULL,
   raw_data JSON NOT NULL,
   status ENUM('valid','invalid','duplicate','missing_reference') NOT NULL,
   error_message TEXT NULL,
+  -- Once confirmed, points at the user (student import) or quiz_result (quiz import) created.
   matched_user_id BIGINT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_import_rows_batch
@@ -127,15 +155,15 @@ CREATE TABLE IF NOT EXISTS import_rows (
 CREATE INDEX ix_import_rows_batch ON import_rows (batch_id);
 
 -- ============================================================================
--- 4. ATTENDANCE  (proposal §6)
+-- 4. ATTENDANCE  (proposal §6 — two fixed daily sessions)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS attendance (
+CREATE TABLE attendance (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   group_id BIGINT UNSIGNED NOT NULL,
   attendance_date DATE NOT NULL,
-  session ENUM('morning','afternoon') NOT NULL,
+  session ENUM('morning','afternoon') NOT NULL, -- morning 09:00-12:00, afternoon 13:00-16:00
   status ENUM('present','late','absent','excused') NOT NULL,
   note TEXT NULL,
   recorded_by BIGINT UNSIGNED NULL,
@@ -154,13 +182,15 @@ CREATE INDEX ix_attendance_group_date ON attendance (group_id, attendance_date);
 -- 5. ASSESSMENTS & RUBRICS  (proposal §7, §8)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS assessments (
+CREATE TABLE assessments (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   group_id BIGINT UNSIGNED NOT NULL,
   title VARCHAR(200) NOT NULL,
   description TEXT NULL,
   type ENUM('project','assignment','presentation','practical','final_project','other') NOT NULL,
   submission_mode ENUM('individual','team') NOT NULL DEFAULT 'individual',
+  -- Repo naming convention students must follow so auto-detection can match
+  -- their GitHub account to this assessment (e.g. "aspnet-mvc-project").
   repo_slug VARCHAR(100) NULL,
   assessment_date DATE NULL,
   due_date DATE NULL,
@@ -173,7 +203,7 @@ CREATE TABLE IF NOT EXISTS assessments (
 );
 CREATE INDEX ix_assessments_group ON assessments (group_id);
 
-CREATE TABLE IF NOT EXISTS assessment_criteria (
+CREATE TABLE assessment_criteria (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   assessment_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(150) NOT NULL,
@@ -185,22 +215,21 @@ CREATE TABLE IF NOT EXISTS assessment_criteria (
 );
 
 -- ============================================================================
--- 6. SUBMISSIONS & AI COLUMNS (GitHub-based; drives automatic AI analysis)
+-- 6. SUBMISSIONS  (GitHub-based; drives automatic AI analysis)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS assessment_submissions (
+CREATE TABLE assessment_submissions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   assessment_id BIGINT UNSIGNED NOT NULL,
   student_id BIGINT UNSIGNED NULL,
   team_id BIGINT UNSIGNED NULL,
   github_url TEXT NOT NULL,
+  -- Latest commit the AI has analyzed. New commits after this trigger re-analysis.
   commit_sha VARCHAR(64) NULL,
   submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   analyzed_at TIMESTAMP NULL,
-  status ENUM('submitted','analyzing','ai_reviewed','teacher_reviewed','approved','rejected','error')
+  status ENUM('submitted','analyzing','ai_reviewed','teacher_reviewed','approved','rejected')
     NOT NULL DEFAULT 'submitted',
-  ai_score DECIMAL(5,2) NULL,
-  ai_feedback TEXT NULL,
   CONSTRAINT fk_assessment_submissions_assessment
     FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE,
   CONSTRAINT fk_assessment_submissions_student
@@ -219,10 +248,11 @@ CREATE INDEX ix_submission_student ON assessment_submissions (student_id);
 CREATE INDEX ix_submission_team ON assessment_submissions (team_id);
 
 -- ============================================================================
--- 7. AI EVALUATION & CRITERIA SCORES
+-- 7. AI EVALUATION  (proposal §14, §15 — Student Data -> AI Analysis ->
+--    AI Draft -> Teacher Review/Edit -> Approved Feedback -> Student)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS ai_evaluations (
+CREATE TABLE ai_evaluations (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   submission_id BIGINT UNSIGNED NOT NULL,
   reviewed_by BIGINT UNSIGNED NULL,
@@ -232,6 +262,7 @@ CREATE TABLE IF NOT EXISTS ai_evaluations (
   areas_for_improvement TEXT NULL,
   recommendations TEXT NULL,
   suggested_next_steps TEXT NULL,
+  -- Full raw AI response kept for audit/debugging/re-processing, not shown as-is in UI.
   raw_ai_response JSON NULL,
   status ENUM('draft','approved','rejected') NOT NULL DEFAULT 'draft',
   teacher_comment TEXT NULL,
@@ -245,7 +276,10 @@ CREATE TABLE IF NOT EXISTS ai_evaluations (
 CREATE INDEX ix_ai_evaluations_submission ON ai_evaluations (submission_id);
 CREATE INDEX ix_ai_status ON ai_evaluations (status);
 
-CREATE TABLE IF NOT EXISTS criterion_scores (
+-- Per-criterion AI score + teacher-editable override, tied to the AI
+-- evaluation itself (not directly to the gradebook) so a re-analysis or a
+-- rejected draft doesn't corrupt final grades.
+CREATE TABLE criterion_scores (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   ai_evaluation_id BIGINT UNSIGNED NOT NULL,
   criterion_id BIGINT UNSIGNED NOT NULL,
@@ -259,33 +293,17 @@ CREATE TABLE IF NOT EXISTS criterion_scores (
     FOREIGN KEY (criterion_id) REFERENCES assessment_criteria(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS submission_criteria_scores (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  submission_id BIGINT UNSIGNED NOT NULL,
-  criteria_id BIGINT UNSIGNED NOT NULL,
-  score DECIMAL(6,2) NOT NULL,
-  comment TEXT NULL,
-  UNIQUE KEY uq_submission_criteria (submission_id, criteria_id),
-  CONSTRAINT fk_sub_crit_scores_sub FOREIGN KEY (submission_id) REFERENCES assessment_submissions(id) ON DELETE CASCADE,
-  CONSTRAINT fk_sub_crit_scores_crit FOREIGN KEY (criteria_id) REFERENCES assessment_criteria(id) ON DELETE CASCADE
-);
-
-ALTER TABLE assessment_submissions
-  ADD COLUMN submitted_by BIGINT UNSIGNED NULL AFTER student_id,
-  ADD CONSTRAINT fk_assessment_submissions_submitted_by
-    FOREIGN KEY (submitted_by) REFERENCES users(id)
-    ON DELETE SET NULL;
-UPDATE assessment_submissions
-SET submitted_by = student_id
-WHERE submitted_by IS NULL;
 -- ============================================================================
--- 8. GRADEBOOK (assessment_scores)
+-- 8. GRADEBOOK  (final, per-student score — the source of truth for grades)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS assessment_scores (
+CREATE TABLE assessment_scores (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   assessment_id BIGINT UNSIGNED NOT NULL,
   student_id BIGINT UNSIGNED NOT NULL,
+  -- Traceable back to the submission/AI evaluation that produced this score,
+  -- when applicable (NULL for assessments with no GitHub submission, e.g. a
+  -- presentation graded directly).
   submission_id BIGINT UNSIGNED NULL,
   score DECIMAL(6,2) NOT NULL,
   feedback TEXT NULL,
@@ -301,10 +319,10 @@ CREATE TABLE IF NOT EXISTS assessment_scores (
 CREATE INDEX ix_assessment_scores_student ON assessment_scores (student_id);
 
 -- ============================================================================
--- 9. QUIZZES
+-- 9. QUIZZES  (proposal §9 — external results imported via import_batches)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS quizzes (
+CREATE TABLE quizzes (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   group_id BIGINT UNSIGNED NOT NULL,
   title VARCHAR(200) NOT NULL,
@@ -323,7 +341,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
 );
 CREATE INDEX ix_quizzes_group ON quizzes (group_id);
 
-CREATE TABLE IF NOT EXISTS quiz_results (
+CREATE TABLE quiz_results (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   quiz_id BIGINT UNSIGNED NOT NULL,
   student_id BIGINT UNSIGNED NOT NULL,
@@ -339,16 +357,16 @@ CREATE INDEX ix_quiz_results_student ON quiz_results (student_id);
 CREATE INDEX ix_quiz_results_quiz ON quiz_results (quiz_id);
 
 -- ============================================================================
--- 10. COMPETENCY MATRIX + HISTORY
+-- 10. COMPETENCY MATRIX + HISTORY  (proposal §10, §11 — trend requires history)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS competencies (
+CREATE TABLE competencies (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL UNIQUE,
   description TEXT NULL
 );
 
-CREATE TABLE IF NOT EXISTS student_competencies (
+CREATE TABLE student_competencies (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   competency_id BIGINT UNSIGNED NOT NULL,
@@ -361,7 +379,10 @@ CREATE TABLE IF NOT EXISTS student_competencies (
     FOREIGN KEY (competency_id) REFERENCES competencies(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS student_competency_history (
+-- Snapshot on every recompute so "improving / stable / declining" and
+-- week-by-week charts (proposal §11 example: Week 1 -> 62%, Week 4 -> 71%)
+-- are derivable from real data instead of guessed.
+CREATE TABLE student_competency_history (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   competency_id BIGINT UNSIGNED NOT NULL,
@@ -375,19 +396,19 @@ CREATE TABLE IF NOT EXISTS student_competency_history (
 CREATE INDEX ix_competency_history_student ON student_competency_history (student_id, competency_id, recorded_at);
 
 -- ============================================================================
--- 11. TEACHER FEEDBACK
+-- 11. TEACHER FEEDBACK  (proposal §18 — templates, editable before publish)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS feedback_templates (
+CREATE TABLE feedback_templates (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  category VARCHAR(100) NOT NULL,
+  category VARCHAR(100) NOT NULL, -- e.g. Excellent, Needs Improvement, Teamwork
   content TEXT NOT NULL,
   created_by BIGINT UNSIGNED NULL,
   CONSTRAINT fk_feedback_templates_created_by
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE TABLE IF NOT EXISTS teacher_feedback (
+CREATE TABLE teacher_feedback (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   teacher_id BIGINT UNSIGNED NOT NULL,
@@ -406,10 +427,10 @@ CREATE TABLE IF NOT EXISTS teacher_feedback (
 );
 
 -- ============================================================================
--- 12. CERTIFICATES
+-- 12. CERTIFICATES  (proposal §13)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS certificates (
+CREATE TABLE certificates (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   added_by BIGINT UNSIGNED NULL,
@@ -427,14 +448,14 @@ CREATE TABLE IF NOT EXISTS certificates (
 );
 
 -- ============================================================================
--- 13. COURSE TIMELINE
+-- 13. COURSE TIMELINE  (proposal §12 — SHOULD HAVE)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS group_timeline_items (
+CREATE TABLE group_timeline_items (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   group_id BIGINT UNSIGNED NOT NULL,
   week_number INT UNSIGNED NOT NULL,
-  title VARCHAR(200) NOT NULL,
+  title VARCHAR(200) NOT NULL, -- e.g. "Week 4 - SQL & Database"
   status ENUM('upcoming','in_progress','completed') NOT NULL DEFAULT 'upcoming',
   sort_order INT NOT NULL DEFAULT 0,
   CONSTRAINT fk_group_timeline_group
@@ -443,10 +464,11 @@ CREATE TABLE IF NOT EXISTS group_timeline_items (
 CREATE INDEX ix_group_timeline_group ON group_timeline_items (group_id);
 
 -- ============================================================================
--- 14. OPTIONAL / NICE-TO-HAVE TABLES
+-- 14. OPTIONAL / NICE-TO-HAVE  (build only after the MUST/SHOULD scope works)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS student_risk_indicators (
+-- §17 Early-warning risk indicator — advisory only, not an academic decision.
+CREATE TABLE student_risk_indicators (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   group_id BIGINT UNSIGNED NOT NULL,
@@ -460,10 +482,11 @@ CREATE TABLE IF NOT EXISTS student_risk_indicators (
 );
 CREATE INDEX ix_risk_student ON student_risk_indicators (student_id);
 
-CREATE TABLE IF NOT EXISTS notifications (
+-- §22 In-app notifications.
+CREATE TABLE notifications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
-  type VARCHAR(50) NOT NULL,
+  type VARCHAR(50) NOT NULL, -- missing_assignment, low_attendance, new_feedback, ...
   message TEXT NOT NULL,
   is_read BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -472,10 +495,11 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX ix_notifications_user_unread ON notifications (user_id, is_read);
 
-CREATE TABLE IF NOT EXISTS audit_log (
+-- §21 Audit log for traceability.
+CREATE TABLE audit_log (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  action VARCHAR(100) NOT NULL,
+  action VARCHAR(100) NOT NULL, -- e.g. "updated_assessment_score"
   entity_type VARCHAR(50) NOT NULL,
   entity_id BIGINT UNSIGNED NULL,
   details JSON NULL,
@@ -485,7 +509,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX ix_audit_log_entity ON audit_log (entity_type, entity_id);
 
-CREATE TABLE IF NOT EXISTS generated_reports (
+-- §20 Cached generated PDF student progress reports (avoid regenerating on every view).
+CREATE TABLE generated_reports (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   student_id BIGINT UNSIGNED NOT NULL,
   generated_by BIGINT UNSIGNED NULL,
@@ -498,44 +523,54 @@ CREATE TABLE IF NOT EXISTS generated_reports (
 );
 CREATE INDEX ix_generated_reports_student ON generated_reports (student_id);
 
+-- Teacher-assigned weekly tasks (in-class presentation/discussion work, team-based,
+-- reuses the same `teams` table as assignments — no separate team system).
+--
+-- NOT: Bu üç tablo daha önce burada eksikti (sadece database/01_schema_v2.sql
+-- içinde vardı). `npm run db:init` sadece bu dosyayı okuduğu için, o yoldan
+-- kurulan bir veritabanında tasks/peer-evaluation özellikleri "table doesn't
+-- exist" hatasıyla patlıyordu. database/01_schema_v2.sql ile birebir aynı
+-- tanımlar buraya da eklendi.
+CREATE TABLE tasks (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  teacher_id INT NOT NULL,
+  course_id INT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL,
+  status ENUM('active','inactive') DEFAULT 'active',
+  teacher_note TEXT NULL,
+  closed_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (teacher_id) REFERENCES users(id),
+  FOREIGN KEY (course_id) REFERENCES courses(id)
+);
 
--- ============================================================================
--- 15. INITIAL SEED DATA (Courses, Groups, Students, Assessments, Criteria)
--- ============================================================================
+-- Which team(s) a task applies to.
+CREATE TABLE task_teams (
+  task_id INT NOT NULL,
+  team_id INT NOT NULL,
+  PRIMARY KEY (task_id, team_id),
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+);
 
-INSERT INTO users (id, name, email, password_hash, role, github_username, is_active)
-VALUES (1, 'Ayse Rana', 'student@test.com', '$2b$10$DummyHashedPasswordForTestingPurposesOnlyXyz', 'student', 'Rana-Kk', TRUE)
-ON DUPLICATE KEY UPDATE name = VALUES(name);
-
--- 2. Kurs ve Grup eklenir
-INSERT INTO courses (id, name, description)
-VALUES (1, 'Software Engineering', 'Lexicon Software Engineering course')
-ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description);
-
-INSERT INTO student_groups (id, course_id, name, created_by)
-VALUES (1, 1, 'Lexicon Student Group', NULL)
-ON DUPLICATE KEY UPDATE course_id = VALUES(course_id), name = VALUES(name);
-
--- 3. Kullanıcı gruba bağlanır (Artık ID: 1 veritabanında var olduğu için hata vermez)
-INSERT INTO group_students (group_id, student_id, joined_at)
-VALUES (1, 1, CURRENT_DATE)
-ON DUPLICATE KEY UPDATE joined_at = VALUES(joined_at);
-
--- 4. Ödev ve Kriterler eklenir
-INSERT INTO assessments (
-    id, group_id, title, description, type, submission_mode, repo_slug, assessment_date, due_date, max_score, created_by
-)
-VALUES (
-    1, 1, 'Python Fundamentals Assignment', 'Introductory assignment', 'assignment', 'individual', NULL, NULL, NULL, 100.00, NULL
-)
-ON DUPLICATE KEY UPDATE 
-    group_id = VALUES(group_id), title = VALUES(title), max_score = VALUES(max_score);
-
-INSERT INTO assessment_criteria (id, assessment_id, name, description, max_score, sort_order)
-VALUES 
-(1, 1, 'Code Structure & Readability', 'Evaluates clean code practices and organization', 50.00, 1),
-(2, 1, 'SQL Query Correctness', 'Evaluates proper usage of joins and constraints', 50.00, 2)
-ON DUPLICATE KEY UPDATE name = VALUES(name);
-
-
-
+-- Student-to-student ratings (1-5 + comment), used both for teacher `tasks` and for
+-- group `assessment_submissions`. Scores are visible only to teacher/admin — students
+-- can only ever query their own submitted ratings (see peerEvaluations.controller.js).
+CREATE TABLE peer_evaluations (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  context_type ENUM('task','submission') NOT NULL,
+  context_id INT NOT NULL,
+  team_id INT NOT NULL,
+  evaluator_id INT NOT NULL,
+  evaluated_id INT NOT NULL,
+  score TINYINT NOT NULL CHECK (score BETWEEN 1 AND 5),
+  comment TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_eval (context_type, context_id, evaluator_id, evaluated_id),
+  FOREIGN KEY (team_id) REFERENCES teams(id),
+  FOREIGN KEY (evaluator_id) REFERENCES users(id),
+  FOREIGN KEY (evaluated_id) REFERENCES users(id)
+);
+CREATE INDEX ix_peer_evaluations_context ON peer_evaluations (context_type, context_id);
+CREATE INDEX ix_peer_evaluations_evaluated ON peer_evaluations (evaluated_id);

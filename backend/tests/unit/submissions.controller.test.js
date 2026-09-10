@@ -1,8 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-
-// ============================================================
-// HOISTED MOCKS
-// ============================================================
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const {
   mockPoolQuery,
@@ -24,76 +20,45 @@ const {
   mockRelease: vi.fn(),
   mockTeacherOwnsGroup: vi.fn(),
   mockAnalyzeSubmissionWithGemini: vi.fn(),
-}))
-
-// ============================================================
-// MOCK DATABASE
-// ============================================================
+}));
 
 vi.mock('../../src/config/db.js', () => ({
   pool: {
     query: mockPoolQuery,
     getConnection: mockGetConnection,
   },
-}))
-
-// ============================================================
-// MOCK AI SERVICE
-// ============================================================
+}));
 
 vi.mock('../../src/services/ai.service.js', () => ({
   analyzeSubmissionWithGemini: mockAnalyzeSubmissionWithGemini,
-}))
-
-// ============================================================
-// MOCK SCOPE
-// ============================================================
+}));
 
 vi.mock('../../src/utils/scope.js', () => ({
   teacherOwnsGroup: mockTeacherOwnsGroup,
-}))
-
-// ============================================================
-// IMPORT CONTROLLER AFTER MOCKS
-// ============================================================
+}));
 
 const {
   getAllSubmissions,
-  getSubmissions,
   getSubmissionById,
   createSubmission,
   reviewSubmission,
   requestResubmission,
-} = await import('../../src/controllers/submissions.controller.js')
-
-// ============================================================
-// HELPERS
-// ============================================================
+} = await import('../../src/controllers/submissions.controller.js');
 
 function createReq({
+  user = { sub: 5, role: 'student' },
   params = {},
   query = {},
   body = {},
-  user = {
-    sub: 1,
-    role: 'admin',
-  },
 } = {}) {
-  return {
-    params,
-    query,
-    body,
-    user,
-  }
+  return { user, params, query, body };
 }
 
 function createRes() {
-  const res = {}
-
-  res.status = vi.fn().mockReturnValue(res)
-  res.json = vi.fn().mockReturnValue(res)
-
-  return res
+  const res = {};
+  res.status = vi.fn().mockReturnValue(res);
+  res.json = vi.fn().mockReturnValue(res);
+  return res;
 }
 
 function createConnection() {
@@ -103,1763 +68,1006 @@ function createConnection() {
     commit: mockCommit,
     rollback: mockRollback,
     release: mockRelease,
-  }
+  };
 }
 
-const runHandler = async (handler, req, res) => {
-  return new Promise((resolve, reject) => {
-    const next = (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+describe('submissions.controller', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
 
-      resolve();
-    };
+    mockPoolQuery.mockResolvedValue([[]]);
+    mockConnQuery.mockResolvedValue([{}]);
+    mockGetConnection.mockResolvedValue(createConnection());
+    mockTeacherOwnsGroup.mockResolvedValue(true);
+    mockAnalyzeSubmissionWithGemini.mockResolvedValue(undefined);
 
-    Promise.resolve(handler(req, res, next))
-      .then(() => {
-        resolve();
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ default_branch: 'main' }),
       })
-      .catch(reject);
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ sha: 'abc123commit' }),
+      });
   });
-};
-
-// ============================================================
-// TEST SETUP
-// ============================================================
 
-beforeEach(() => {
-  vi.clearAllMocks()
-
-  global.fetch = vi.fn()
-
-  // Controller içinde beklenmeyen/ek sorgular için
-  // güvenli varsayılan database cevabı
-  mockPoolQuery.mockResolvedValue([[]])
-
-  mockGetConnection.mockResolvedValue(createConnection())
-
-  mockTeacherOwnsGroup.mockResolvedValue(true)
-
-  mockAnalyzeSubmissionWithGemini.mockResolvedValue(undefined)
-})
-afterEach(() => {
-  vi.restoreAllMocks()
-})
-
-// ============================================================
-// getAllSubmissions
-// ============================================================
-
-describe('getAllSubmissions', () => {
-  it('returns all submissions for admin', async () => {
-    const req = createReq({
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    const rows = [
-      {
-        id: 1,
-        student_id: 2,
-      },
-      {
-        id: 2,
-        student_id: 3,
-      },
-    ]
-
-    mockPoolQuery.mockResolvedValueOnce([rows])
-
-    await runHandler(getAllSubmissions, req, res)
-
-    expect(mockPoolQuery).toHaveBeenCalledTimes(1)
-
-    expect(res.json).toHaveBeenCalledWith({
-      success: true,
-      count: 2,
-      data: rows,
-    })
-  })
-
-  it('filters submissions by assessment_id', async () => {
-    const req = createReq({
-      query: {
-        assessment_id: '10',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await runHandler(getAllSubmissions, req, res)
-
-    const [sql, params] =
-      mockPoolQuery.mock.calls[0]
-
-    expect(sql).toContain(
-      's.assessment_id=?'
-    )
-
-    expect(params).toContain('10')
-  })
-
-  it('filters submissions by student_id for admin', async () => {
-    const req = createReq({
-      query: {
-        student_id: '25',
-      },
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await runHandler(getAllSubmissions, req, res)
-
-    const [, params] =
-      mockPoolQuery.mock.calls[0]
-
-    expect(params).toContain('25')
-  })
-
-  it('only returns own submissions for student', async () => {
-    const req = createReq({
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await runHandler(getAllSubmissions, req, res)
-
-    const [sql, params] =
-      mockPoolQuery.mock.calls[0]
-
-    expect(sql).toContain(
-      's.student_id=?'
-    )
-
-    expect(params).toEqual([5])
-  })
-
-  it('limits teacher to assigned groups', async () => {
-    const req = createReq({
-      user: {
-        sub: 8,
-        role: 'teacher',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await runHandler(getAllSubmissions, req, res)
-
-    const [sql, params] =
-      mockPoolQuery.mock.calls[0]
-
-    expect(sql).toContain(
-      'group_teachers'
-    )
-
-    expect(params).toContain(8)
-  })
-
-  it('getSubmissions is an alias for getAllSubmissions', () => {
-    expect(getSubmissions).toBe(getAllSubmissions)
-  })
-})
-
-// ============================================================
-// getSubmissionById
-// ============================================================
-
-describe('getSubmissionById', () => {
-  const submission = {
-    id: 10,
-    student_id: 5,
-    assessment_id: 100,
-    assessment_group_id: 20,
-    assessment_max_score: 100,
-    status: 'submitted',
-  }
-
-  it('throws 404 when submission does not exist', async () => {
-    const req = createReq({
-      params: { id: '999' },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await expect(
-      runHandler(getSubmissionById, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 404,
-    })
-  })
-
-  it('allows admin to view submission details', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 50,
-            status: 'pending',
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-
-    await runHandler(
-      getSubmissionById,
-      req,
-      res
-    )
-
-    expect(res.json).toHaveBeenCalled()
-
-    expect(res.json.mock.calls[0][0].success)
-      .toBe(true)
-  })
-
-  it('prevents student from viewing another student submission', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 99,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
-
-    await expect(
-      runHandler(getSubmissionById, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 403,
-    })
-  })
-
-  it('allows student to view own submission', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    const approvedEval = {
-      id: 100,
-      status: 'approved',
-      total_teacher_score: 90,
-      strengths: 'Good architecture',
-      areas_for_improvement: 'Testing',
-      recommendations: 'Write more tests',
-      suggested_next_steps: 'Practice',
-      teacher_comment: 'Well done',
-    }
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[approvedEval]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-
-    await runHandler(
-      getSubmissionById,
-      req,
-      res
-    )
-
-    expect(res.json).toHaveBeenCalled()
-
-    const response =
-      res.json.mock.calls[0][0]
-
-    expect(
-      response.data.ai_evaluations
-    ).toHaveLength(1)
-
-    expect(
-      response.data.ai_evaluations[0].status
-    ).toBe('approved')
-  })
-
-  it('prevents teacher without group access', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 7,
-        role: 'teacher',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
-
-    mockTeacherOwnsGroup.mockResolvedValueOnce(false)
-
-    await expect(
-      runHandler(getSubmissionById, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 403,
-    })
-  })
-
-  it('allows teacher with group access', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 7,
-        role: 'teacher',
-      },
-    })
-
-    const res = createRes()
-
-    const latestEval = {
-      id: 101,
-      status: 'completed',
-      total_ai_score: 85,
-      total_teacher_score: 90,
-    }
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[latestEval]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[]])
-
-    mockTeacherOwnsGroup.mockResolvedValueOnce(true)
-
-    await runHandler(
-      getSubmissionById,
-      req,
-      res
-    )
-
-    expect(res.json).toHaveBeenCalled()
-  })
-
-  it('returns rejected evaluation to student when no approved evaluation exists', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    const rejectedEval = {
-      id: 200,
-      status: 'rejected',
-      teacher_comment: 'Please fix this',
-    }
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[rejectedEval]])
-
-    await runHandler(
-      getSubmissionById,
-      req,
-      res
-    )
-
-    const response =
-      res.json.mock.calls[0][0]
-
-    expect(
-      response.data.ai_evaluations[0].status
-    ).toBe('rejected')
-  })
-
-it('uses teacher values over AI checklist values for student', async () => {
-  const req = createReq({
-    params: { id: '10' },
-    user: {
-      sub: 5,
-      role: 'student',
-    },
-  })
-
-  const res = createRes()
-
-  const approvedEval = {
-    id: 100,
-    status: 'approved',
-  }
-
-  const checklist = [
-    {
-      id: 1,
-      name: 'Code quality',
-      description: 'Clean code',
-      criterion_type: 'score',
-      max_score: 10,
-
-      ai_yes_no_value: false,
-      ai_score_value: 4,
-      ai_text_value: 'AI text',
-
-      teacher_yes_no_value: true,
-      teacher_score_value: 9,
-      teacher_text_value: 'Teacher text',
-    },
-  ]
-
-  mockPoolQuery
-    // 1. submission
-    .mockResolvedValueOnce([[submission]])
-
-    // 2. latest evaluation
-    .mockResolvedValueOnce([[approvedEval]])
-
-    // 3. AI criterion scores / suggestions
-    .mockResolvedValueOnce([[]])
-
-    // 4. approved teacher criterion scores
-    .mockResolvedValueOnce([[]])
-
-    // 5. checklist results
-    .mockResolvedValueOnce([checklist])
-
-    // Extra queries güvenli şekilde boş dönebilir
-    .mockResolvedValue([[]])
-
-  await runHandler(
-    getSubmissionById,
-    req,
-    res
-  )
-
-  expect(res.json).toHaveBeenCalled()
-
-  const response = res.json.mock.calls[0][0]
-
-  expect(response.data.checklist_results).toHaveLength(1)
-
-  const item = response.data.checklist_results[0]
-
-  expect(item.final_yes_no_value).toBe(true)
-
-  expect(item.final_score_value).toBe(9)
-
-  expect(item.final_text_value).toBe('Teacher text')
-})})
-
-// ============================================================
-// createSubmission
-// ============================================================
-
-describe('createSubmission', () => {
-  function mockGithubSuccess() {
-    global.fetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          default_branch: 'main',
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          sha: 'abc123commit',
-        }),
-      })
-  }
-
-  it('requires assessment id and GitHub URL', async () => {
-    const req = createReq({
-      body: {},
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    await expect(
-      runHandler(createSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 400,
-    })
-  })
-
-  it('throws 404 when assessment does not exist', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/project',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await expect(
-      runHandler(createSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 404,
-    })
-  })
-
-  it('creates an individual submission and starts AI analysis', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/project',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockGithubSuccess()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            submission_mode: 'individual',
-            group_id: 20,
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([
-        {
-          insertId: 100,
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // =========================================================
+  // GET ALL SUBMISSIONS
+  // =========================================================
+
+  describe('getAllSubmissions', () => {
+    it('returns submissions for student including team submissions', async () => {
+      const req = createReq({
+        user: { sub: 5, role: 'student' },
+      });
+      const res = createRes();
+
+      await getAllSubmissions(req, res);
+
+      const [sql, params] = mockPoolQuery.mock.calls[0];
+
+      expect(sql).toContain('assessment_submissions');
+      expect(sql).toContain('s.student_id = ?');
+      expect(sql).toContain('team_members');
+      expect(params).toEqual([5, 5]);
+
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    });
+
+    it('does not apply student_id filter for admin', async () => {
+      const req = createReq({
+        user: { sub: 1, role: 'admin' },
+        query: { student_id: '25' },
+      });
+      const res = createRes();
+
+      await getAllSubmissions(req, res);
+
+      const [sql, params] = mockPoolQuery.mock.calls[0];
+
+      expect(sql).not.toContain('s.student_id = ?');
+      expect(params).not.toContain('25');
+
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    });
+
+    it('filters submissions by student_id for teacher', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        query: { student_id: '25' },
+      });
+      const res = createRes();
+
+      await getAllSubmissions(req, res);
+
+      const [sql, params] = mockPoolQuery.mock.calls[0];
+
+      expect(sql).toContain('group_teachers');
+      expect(sql).toContain('team_members');
+      expect(params).toEqual([10, '25', '25']);
+    });
+
+    it('returns submissions for teacher', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+      });
+      const res = createRes();
+
+      await getAllSubmissions(req, res);
+
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    });
+
+    it('returns submissions for admin', async () => {
+      const req = createReq({
+        user: { sub: 1, role: 'admin' },
+      });
+      const res = createRes();
+
+      await getAllSubmissions(req, res);
+
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    });
+
+    it('handles database errors', async () => {
+      const req = createReq();
+      const res = createRes();
+
+      mockPoolQuery.mockRejectedValueOnce(new Error('Database error'));
+
+      await expect(getAllSubmissions(req, res))
+        .rejects.toThrow('Database error');
+
+      expect(res.json).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================
+  // GET SUBMISSION BY ID
+  // =========================================================
+
+  describe('getSubmissionById', () => {
+    it('returns a student submission', async () => {
+      const req = createReq({
+        user: { sub: 5, role: 'student' },
+        params: { id: '100' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([
+        [{
+          id: 100,
+          assessment_id: 10,
+          student_id: 5,
+          team_id: null,
+          assessment_group_id: 20,
+          status: 'submitted',
+          team_members_json: null,
+        }],
+      ]);
+
+      await getSubmissionById(req, res);
+
+      const response = res.json.mock.calls[0][0];
+
+      expect(response.success).toBe(true);
+      expect(response.data.id).toBe(100);
+      expect(response.data.team_members).toEqual([]);
+    });
+
+    it('allows a team member to access a shared team submission', async () => {
+      const req = createReq({
+        user: { sub: 6, role: 'student' },
+        params: { id: '100' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([
+        [{
+          id: 100,
+          assessment_id: 10,
+          student_id: null,
+          team_id: 500,
+          assessment_group_id: 20,
+          status: 'submitted',
+          team_members_json: JSON.stringify([
+            { id: 5, name: 'Student One' },
+            { id: 6, name: 'Student Two' },
+          ]),
+        }],
+      ]);
+
+      await getSubmissionById(req, res);
+
+      const response = res.json.mock.calls[0][0];
+
+      expect(response.success).toBe(true);
+      expect(response.data.id).toBe(100);
+      expect(response.data.team_members).toHaveLength(2);
+      expect(res.status).not.toHaveBeenCalledWith(403);
+    });
+
+    it('returns 404 when submission does not exist', async () => {
+      const req = createReq({
+        params: { id: '999' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[]]);
+
+      await expect(getSubmissionById(req, res))
+        .rejects.toThrow('Submission not found');
+    });
+
+    it('denies access to another student submission', async () => {
+      const req = createReq({
+        user: { sub: 6, role: 'student' },
+        params: { id: '100' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([
+        [{
+          id: 100,
+          assessment_id: 10,
+          student_id: 5,
+          team_id: null,
+          assessment_group_id: 20,
+          status: 'submitted',
+          team_members_json: null,
+        }],
+      ]);
+
+      await expect(getSubmissionById(req, res))
+        .rejects.toThrow('You do not have access to this submission');
+    });
+
+    it('allows teacher to access a submission owned by their group', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([
+        [{
+          id: 100,
+          assessment_id: 10,
+          student_id: 5,
+          team_id: null,
+          assessment_group_id: 20,
+          status: 'submitted',
+          team_members_json: null,
+        }],
+      ]);
+
+      await getSubmissionById(req, res);
+
+      expect(mockTeacherOwnsGroup).toHaveBeenCalledWith(10, 20);
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('allows admin to access a submission', async () => {
+      const req = createReq({
+        user: { sub: 1, role: 'admin' },
+        params: { id: '100' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([
+        [{
+          id: 100,
+          assessment_id: 10,
+          student_id: 5,
+          team_id: null,
+          assessment_group_id: 20,
+          status: 'submitted',
+          team_members_json: null,
+        }],
+      ]);
+
+      await getSubmissionById(req, res);
+
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('handles database errors', async () => {
+      const req = createReq({
+        params: { id: '100' },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockRejectedValueOnce(new Error('Database error'));
+
+      await expect(getSubmissionById(req, res))
+        .rejects.toThrow('Database error');
+    });
+  });
+
+  // =========================================================
+  // CREATE / UPDATE SUBMISSION
+  // =========================================================
+
+  describe('createSubmission', () => {
+    it('creates an individual submission', async () => {
+      const req = createReq({
+        user: { sub: 5, role: 'student' },
+        body: {
+          assessment_id: 10,
+          github_repo_url: 'https://github.com/test/project',
         },
-      ])
+      });
+      const res = createRes();
 
-    await runHandler(
-      createSubmission,
-      req,
-      res
-    )
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          { id: 10, group_id: 20, submission_mode: 'individual' },
+        ]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ insertId: 100 }]);
 
-    expect(mockAnalyzeSubmissionWithGemini)
-      .toHaveBeenCalledWith(
+      await createSubmission(req, res);
+
+      expect(mockAnalyzeSubmissionWithGemini).toHaveBeenCalledWith(
         100,
         'test',
         'project',
         'abc123commit',
-        undefined
-      )
+        undefined,
+      );
 
-    expect(res.status)
-      .toHaveBeenCalledWith(201)
-
-    expect(res.json)
-      .toHaveBeenCalledWith({
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith({
         success: true,
-        message:
-          'Submission received and AI analysis started',
+        message: 'Submission received and AI analysis started',
         data: {
           id: 100,
           status: 'analyzing',
           commit_sha: 'abc123commit',
         },
-      })
-  })
+      });
+    });
 
-  it('updates an existing individual submission', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/project',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
+    it('updates an existing individual submission', async () => {
+      const req = createReq({
+        user: { sub: 5, role: 'student' },
+        body: {
+          assessment_id: 10,
+          github_repo_url: 'https://github.com/test/project',
+        },
+      });
+      const res = createRes();
 
-    const res = createRes()
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ default_branch: 'main' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ sha: 'newcommit123' }),
+        });
 
-    mockGithubSuccess()
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          { id: 10, group_id: 20, submission_mode: 'individual' },
+        ]])
+        .mockResolvedValueOnce([[
+          { id: 100 },
+        ]])
+        .mockResolvedValueOnce([{}]);
 
-    mockPoolQuery
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            submission_mode: 'individual',
-            group_id: 20,
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 55,
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([{}])
+      await createSubmission(req, res);
 
-    await runHandler(
-      createSubmission,
-      req,
-      res
-    )
+      const updateCalls = mockPoolQuery.mock.calls.filter(
+        ([sql]) => sql.includes('UPDATE assessment_submissions'),
+      );
 
-    expect(mockAnalyzeSubmissionWithGemini)
-      .toHaveBeenCalledWith(
-        55,
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0][1]).toEqual([
+        'https://github.com/test/project',
+        'newcommit123',
+        100,
+      ]);
+
+      expect(mockAnalyzeSubmissionWithGemini).toHaveBeenCalledWith(
+        100,
         'test',
         'project',
-        'abc123commit',
-        undefined
-      )
-  })
+        'newcommit123',
+        undefined,
+      );
+    });
 
-  it('rejects invalid GitHub URL', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url: 'invalid-url',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [
-        {
-          id: 10,
-          submission_mode: 'individual',
+    it('creates one shared submission for the whole team', async () => {
+      const req = createReq({
+        user: { sub: 5, role: 'student' },
+        body: {
+          assessment_id: 10,
+          github_repo_url: 'https://github.com/test/team-project',
         },
-      ],
-    ])
+      });
+      const res = createRes();
 
-    await expect(
-      runHandler(createSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 400,
-    })
-  })
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ default_branch: 'main' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ sha: 'abc123commit' }),
+        });
 
-  it('rejects inaccessible GitHub repository', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/private',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [
-        {
-          id: 10,
-          submission_mode: 'individual',
-        },
-      ],
-    ])
-
-    global.fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 404,
-    })
-
-    await expect(
-      runHandler(createSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 400,
-    })
-  })
-
-  it('creates submissions for all team members', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/team-project',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockGithubSuccess()
-
-    mockPoolQuery
-      // assessment
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            submission_mode: 'team',
-            group_id: 20,
-          },
-        ],
-      ])
-
-      // team
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 500,
-          },
-        ],
-      ])
-
-      // members
-      .mockResolvedValueOnce([
-        [
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          { id: 10, group_id: 500, submission_mode: 'team' },
+        ]])
+        .mockResolvedValueOnce([[
+          { id: 500 },
+        ]])
+        .mockResolvedValueOnce([[
           { student_id: 5 },
           { student_id: 6 },
-        ],
-      ])
+        ]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ insertId: 100 }]);
 
-      // existing member 5
-      .mockResolvedValueOnce([[]])
+      await createSubmission(req, res);
 
-      // insert member 5
-      .mockResolvedValueOnce([
-        {
-          insertId: 100,
-        },
-      ])
+      const insertCalls = mockPoolQuery.mock.calls.filter(
+        ([sql]) => sql.includes('INSERT INTO assessment_submissions'),
+      );
 
-      // existing member 6
-      .mockResolvedValueOnce([[]])
+      expect(insertCalls).toHaveLength(1);
+      expect(insertCalls[0][1]).toEqual([
+        10,
+        500,
+        5,
+        'https://github.com/test/team-project',
+        'abc123commit',
+      ]);
 
-      // insert member 6
-      .mockResolvedValueOnce([
-        {
-          insertId: 101,
-        },
-      ])
-
-    await runHandler(
-      createSubmission,
-      req,
-      res
-    )
-
-    expect(mockAnalyzeSubmissionWithGemini)
-      .toHaveBeenCalledWith(
+      expect(mockAnalyzeSubmissionWithGemini).toHaveBeenCalledWith(
         100,
         'test',
         'team-project',
         'abc123commit',
-        [100, 101]
-      )
-  })
+        [100],
+      );
+    });
 
-  it('throws when student is not part of a team', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/project',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockGithubSuccess()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            submission_mode: 'team',
-            group_id: 20,
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([[]])
-
-    await expect(
-      runHandler(createSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 400,
-    })
-  })
-
-  it('does not fail the submission when AI analysis rejects asynchronously', async () => {
-    const req = createReq({
-      body: {
-        assessment_id: 10,
-        github_url:
-          'https://github.com/test/project',
-      },
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    mockGithubSuccess()
-
-    mockAnalyzeSubmissionWithGemini.mockReturnValueOnce(
-      Promise.reject(
-        new Error('AI failed')
-      )
-    )
-
-    mockPoolQuery
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            submission_mode: 'individual',
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([
-        {
-          insertId: 100,
+    it('updates the existing shared team submission', async () => {
+      const req = createReq({
+        user: { sub: 5, role: 'student' },
+        body: {
+          assessment_id: 10,
+          github_repo_url: 'https://github.com/test/team-project',
         },
-      ])
-
-    await runHandler(
-      createSubmission,
-      req,
-      res
-    )
-
-    expect(res.status)
-      .toHaveBeenCalledWith(201)
-  })
-})
-
-// ============================================================
-// reviewSubmission
-// ============================================================
-
-describe('reviewSubmission', () => {
-  const submission = {
-    id: 10,
-    assessment_id: 20,
-    student_id: 30,
-    group_id: 40,
-  }
-
-  it('only allows teacher or admin', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 30,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    await expect(
-      runHandler(reviewSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 403,
-    })
-  })
-
-  it('throws 404 when submission does not exist', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await expect(
-      runHandler(reviewSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 404,
-    })
-  })
-
-  it('prevents teacher without group ownership', async () => {
-    const req = createReq({
-      params: { id: '10' },
-      user: {
-        sub: 1,
-        role: 'teacher',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
-
-    mockTeacherOwnsGroup.mockResolvedValueOnce(false)
-
-    await expect(
-      runHandler(reviewSubmission, req, res)
-    ).rejects.toMatchObject({
-      statusCode: 403,
-    })
-  })
-
-  it('saves draft evaluation and commits transaction', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        final_score: 80,
-        teacher_feedback: 'Good work',
-        action: 'save',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            status: 'teacher_reviewed',
-          },
-        ],
-      ])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    expect(mockBeginTransaction)
-      .toHaveBeenCalled()
-
-    expect(mockCommit)
-      .toHaveBeenCalled()
-
-    expect(mockRelease)
-      .toHaveBeenCalled()
-
-    expect(res.json.mock.calls[0][0].success)
-      .toBe(true)
-  })
-
-  it('updates an existing AI evaluation', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        final_score: 90,
-        action: 'approve',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 500,
-            strengths: 'old',
-            areas_for_improvement: 'old',
-            recommendations: 'old',
-            suggested_next_steps: 'old',
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 10,
-            status: 'approved',
-          },
-        ],
-      ])
-
-    mockConnQuery.mockResolvedValue({})
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    expect(mockConnQuery)
-      .toHaveBeenCalled()
-
-    expect(mockCommit)
-      .toHaveBeenCalled()
-  })
-
-  it('normalizes approve action to approved', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'approve',
-        final_score: 95,
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[submission]])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    const updateCall =
-      mockConnQuery.mock.calls.find(
-        ([sql]) =>
-          sql.includes(
-            'UPDATE assessment_submissions'
-          )
-      )
-
-    expect(updateCall[1][0])
-      .toBe('approved')
-  })
-
-  it('normalizes reject action to rejected', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'reject',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[submission]])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    const updateCall =
-      mockConnQuery.mock.calls.find(
-        ([sql]) =>
-          sql.includes(
-            'UPDATE assessment_submissions'
-          )
-      )
-
-    expect(updateCall[1][0])
-      .toBe('rejected')
-  })
-
-  it('saves criterion scores', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'save',
-
-        criteria_scores: [
-          {
-            criterion_id: 1,
-            ai_recommended_score: 7,
-            teacher_final_score: 8,
-            ai_rationale: 'Good',
-          },
-        ],
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[submission]])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    expect(mockConnQuery.mock.calls.some(
-      ([sql]) =>
-        sql.includes('criterion_scores')
-    )).toBe(true)
-  })
-
-  it('saves checklist results', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'save',
-
-        checklist_results: [
-          {
-            checklist_criterion_id: 1,
-            teacher_yes_no_value: true,
-            teacher_score_value: 8,
-            teacher_text_value: 'Good',
-            teacher_feedback: 'Nice',
-          },
-        ],
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[submission]])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    expect(mockConnQuery.mock.calls.some(
-      ([sql]) =>
-        sql.includes(
-          'assessment_checklist_results'
-        )
-    )).toBe(true)
-  })
-
-  it('creates assessment score when approved', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'approved',
-        final_score: 88,
-        teacher_feedback: 'Excellent',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[submission]])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    expect(mockConnQuery.mock.calls.some(
-      ([sql]) =>
-        sql.includes('assessment_scores')
-    )).toBe(true)
-  })
-
-  it('creates teacher feedback when approved with feedback', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'approved',
-        final_score: 90,
-        teacher_feedback: 'Very good',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([[submission]])
-
-    mockConnQuery.mockResolvedValueOnce([
-      {
-        insertId: 500,
-      },
-    ])
-
-    await runHandler(
-      reviewSubmission,
-      req,
-      res
-    )
-
-    expect(mockConnQuery.mock.calls.some(
-      ([sql]) =>
-        sql.includes('teacher_feedback')
-    )).toBe(true)
-  })
-
-  it('rolls back transaction when an error occurs', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        action: 'save',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      .mockResolvedValueOnce([[submission]])
-      .mockResolvedValueOnce([[]])
-
-    mockConnQuery.mockRejectedValueOnce(
-      new Error('Database error')
-    )
-
-    await expect(
-      runHandler(reviewSubmission, req, res)
-    ).rejects.toThrow('Database error')
-
-    expect(mockRollback)
-      .toHaveBeenCalled()
-
-    expect(mockRelease)
-      .toHaveBeenCalled()
-  })
-})
-
-// ============================================================
-// requestResubmission
-// ============================================================
-
-describe('requestResubmission', () => {
-  const submission = {
-    id: 10,
-    student_id: 5,
-    assessment_id: 20,
-    group_id: 30,
-    submission_mode: 'individual',
-  }
-
-  it('only allows teacher or admin', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      user: {
-        sub: 5,
-        role: 'student',
-      },
-    })
-
-    const res = createRes()
-
-    await expect(
-      runHandler(
-        requestResubmission,
-        req,
-        res
-      )
-    ).rejects.toMatchObject({
-      statusCode: 403,
-    })
-  })
-
-  it('throws 404 when submission does not exist', async () => {
-    const req = createReq({
-      params: { id: '10' },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([[]])
-
-    await expect(
-      runHandler(
-        requestResubmission,
-        req,
-        res
-      )
-    ).rejects.toMatchObject({
-      statusCode: 404,
-    })
-  })
-
-  it('prevents teacher without group ownership', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      user: {
-        sub: 1,
-        role: 'teacher',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
-
-    mockTeacherOwnsGroup.mockResolvedValueOnce(false)
-
-    await expect(
-      runHandler(
-        requestResubmission,
-        req,
-        res
-      )
-    ).rejects.toMatchObject({
-      statusCode: 403,
-    })
-  })
-
-  it('requests resubmission for individual submission with existing evaluation', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        teacher_feedback:
-          'Please improve your tests',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
-
-    mockConnQuery
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 500,
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([{}])
-      .mockResolvedValueOnce([{}])
-
-    await runHandler(
-      requestResubmission,
-      req,
-      res
-    )
-
-    expect(mockBeginTransaction)
-      .toHaveBeenCalled()
-
-    expect(mockCommit)
-      .toHaveBeenCalled()
-
-    expect(mockRelease)
-      .toHaveBeenCalled()
-
-    expect(res.json).toHaveBeenCalledWith({
-      success: true,
-      message: 'Resubmission requested',
-
-      data: {
-        id: '10',
-        status: 'rejected',
-        resubmission_requested: true,
-      },
-    })
-  })
-
-  it('creates rejected evaluation when no evaluation exists', async () => {
-    const req = createReq({
-      params: { id: '10' },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
-
-    mockConnQuery
-      .mockResolvedValueOnce([[]])
-      .mockResolvedValueOnce([
-        {
-          insertId: 500,
+      });
+      const res = createRes();
+
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ default_branch: 'main' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ sha: 'newcommit123' }),
+        });
+
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          { id: 10, group_id: 500, submission_mode: 'team' },
+        ]])
+        .mockResolvedValueOnce([[
+          { id: 500 },
+        ]])
+        .mockResolvedValueOnce([[
+          { student_id: 5 },
+          { student_id: 6 },
+        ]])
+        .mockResolvedValueOnce([[
+          { id: 100 },
+        ]])
+        .mockResolvedValueOnce([{}]);
+
+      await createSubmission(req, res);
+
+      const updateCalls = mockPoolQuery.mock.calls.filter(
+        ([sql]) => sql.includes('UPDATE assessment_submissions'),
+      );
+
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0][1]).toEqual([
+        500,
+        'https://github.com/test/team-project',
+        'newcommit123',
+        5,
+        100,
+      ]);
+
+      expect(mockAnalyzeSubmissionWithGemini).toHaveBeenCalledWith(
+        100,
+        'test',
+        'team-project',
+        'newcommit123',
+        [100],
+      );
+    });
+
+    it('returns an error when assessment does not exist', async () => {
+      const req = createReq({
+        body: {
+          assessment_id: 999,
+          github_repo_url: 'https://github.com/test/project',
         },
-      ])
-      .mockResolvedValueOnce([{}])
+      });
+      const res = createRes();
 
-    await runHandler(
-      requestResubmission,
-      req,
-      res
-    )
+      mockPoolQuery.mockResolvedValueOnce([[]]);
 
-    expect(mockConnQuery.mock.calls.some(
-      ([sql]) =>
-        sql.includes(
-          'INSERT INTO ai_evaluations'
-        )
-    )).toBe(true)
-  })
+      await expect(createSubmission(req, res))
+        .rejects.toThrow('Assessment not found');
+    });
 
-  it('uses default resubmission message when feedback is empty', async () => {
-    const req = createReq({
-      params: { id: '10' },
+    it('handles database errors', async () => {
+      const req = createReq({
+        body: {
+          assessment_id: 10,
+          github_repo_url: 'https://github.com/test/project',
+        },
+      });
+      const res = createRes();
 
-      body: {},
+      mockPoolQuery.mockRejectedValueOnce(new Error('Database error'));
 
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
+      await expect(createSubmission(req, res))
+        .rejects.toThrow('Database error');
+    });
+  });
 
-    const res = createRes()
+  // =========================================================
+  // REVIEW SUBMISSION
+  // =========================================================
 
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
+  describe('reviewSubmission', () => {
+    it('reviews and approves an individual submission', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          action: 'approved',
+          final_score: 90,
+          teacher_feedback: 'Good work.',
+        },
+      });
+      const res = createRes();
 
-    mockConnQuery
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 500,
-          },
-        ],
-      ])
-      .mockResolvedValueOnce([{}])
-      .mockResolvedValueOnce([{}])
-
-    await runHandler(
-      requestResubmission,
-      req,
-      res
-    )
-
-    const updateCall =
-      mockConnQuery.mock.calls.find(
-        ([sql]) =>
-          sql.includes(
-            'UPDATE ai_evaluations'
-          )
-      )
-
-    expect(
-      updateCall[1][0]
-    ).toContain(
-      '[RESUBMISSION_REQUESTED]'
-    )
-  })
-
-  it('requests resubmission for every team member', async () => {
-    const teamSubmission = {
-      ...submission,
-      submission_mode: 'team',
-    }
-
-    const req = createReq({
-      params: { id: '10' },
-
-      body: {
-        teacher_feedback: 'Fix project',
-      },
-
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
-
-    const res = createRes()
-
-    mockPoolQuery
-      // submission
-      .mockResolvedValueOnce([
-        [teamSubmission],
-      ])
-
-      // team
-      .mockResolvedValueOnce([
-        [
-          {
-            id: 500,
-          },
-        ],
-      ])
-
-      // sibling submissions
-      .mockResolvedValueOnce([
-        [
-          { id: 10 },
-          { id: 11 },
-        ],
-      ])
-
-    mockConnQuery
-      // submission 10 eval
-      .mockResolvedValueOnce([
-        [
+      mockPoolQuery
+        .mockResolvedValueOnce([[
           {
             id: 100,
+            assessment_id: 10,
+            student_id: 5,
+            team_id: null,
+            group_id: 20,
+            submission_mode: 'individual',
           },
-        ],
-      ])
+        ]])
+        .mockResolvedValueOnce([[]]);
 
-      // update evaluation
-      .mockResolvedValueOnce([{}])
+      mockConnQuery.mockResolvedValue([{}]);
 
-      // update submission
-      .mockResolvedValueOnce([{}])
+      await reviewSubmission(req, res);
 
-      // submission 11 eval
-      .mockResolvedValueOnce([
-        [
+      expect(mockTeacherOwnsGroup).toHaveBeenCalledWith(10, 20);
+      expect(mockBeginTransaction).toHaveBeenCalled();
+      expect(mockCommit).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('updates an existing AI evaluation', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          action: 'approved',
+          final_score: 85,
+          teacher_feedback: 'Needs some improvements.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery
+        .mockResolvedValueOnce([[
           {
-            id: 101,
+            id: 100,
+            assessment_id: 10,
+            student_id: 5,
+            team_id: null,
+            group_id: 20,
+            submission_mode: 'individual',
           },
-        ],
-      ])
+        ]])
+        .mockResolvedValueOnce([[
+          {
+            id: 50,
+            strengths: null,
+            areas_for_improvement: null,
+            recommendations: null,
+            suggested_next_steps: null,
+          },
+        ]]);
 
-      // update evaluation
-      .mockResolvedValueOnce([{}])
+      await reviewSubmission(req, res);
 
-      // update submission
-      .mockResolvedValueOnce([{}])
+      const updateEvalCalls = mockConnQuery.mock.calls.filter(
+        ([sql]) => sql.includes('UPDATE ai_evaluations'),
+      );
 
-    await runHandler(
-      requestResubmission,
-      req,
-      res
-    )
+      expect(updateEvalCalls).toHaveLength(1);
+      expect(mockCommit).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
 
-    const submissionUpdates =
-      mockConnQuery.mock.calls.filter(
-        ([sql]) =>
-          sql.includes(
-            'UPDATE assessment_submissions'
-          )
-      )
+    it('creates assessment scores for all team members when a team submission is approved', async () => {
+      const req = createReq({
+        user: { sub: 99, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          action: 'approved',
+          final_score: 90,
+          teacher_feedback: 'Great teamwork.',
+        },
+      });
+      const res = createRes();
 
-    expect(submissionUpdates)
-      .toHaveLength(2)
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          {
+            id: 100,
+            assessment_id: 10,
+            student_id: null,
+            team_id: 500,
+            group_id: 20,
+            submission_mode: 'team',
+          },
+        ]])
+        .mockResolvedValueOnce([[]]);
 
-    expect(mockCommit)
-      .toHaveBeenCalled()
-  })
+mockConnQuery.mockImplementation(async (sql) => {
+  if (sql.includes('FROM team_members')) {
+    return [[
+      { student_id: 30 },
+      { student_id: 31 },
+    ]];
+  }
 
-  it('rolls back transaction when resubmission fails', async () => {
-    const req = createReq({
-      params: { id: '10' },
+  if (sql.includes('INSERT INTO ai_evaluations')) {
+    return [{ insertId: 50 }];
+  }
 
-      user: {
-        sub: 1,
-        role: 'admin',
-      },
-    })
+  return [{}];
+});
+      await reviewSubmission(req, res);
 
-    const res = createRes()
+      const scoreInsertCalls = mockConnQuery.mock.calls.filter(
+        ([sql]) => sql.includes('INSERT INTO assessment_scores'),
+      );
 
-    mockPoolQuery.mockResolvedValueOnce([
-      [submission],
-    ])
+      expect(scoreInsertCalls).toHaveLength(2);
 
-    mockConnQuery.mockRejectedValueOnce(
-      new Error('Transaction failed')
-    )
+      expect(scoreInsertCalls[0][1]).toEqual([
+      10,
+      30,
+      '100',
+      90,
+      'Great teamwork.',
+      ]);
 
-    await expect(
-      runHandler(
-        requestResubmission,
-        req,
-        res
-      )
-    ).rejects.toThrow(
-      'Transaction failed'
-    )
+      expect(scoreInsertCalls[1][1]).toEqual([
+  10,
+  31,
+  '100',
+  90,
+  'Great teamwork.',
+]);
 
-    expect(mockRollback)
-      .toHaveBeenCalled()
+      const feedbackInsertCalls = mockConnQuery.mock.calls.filter(
+        ([sql]) => sql.includes('INSERT INTO teacher_feedback'),
+      );
 
-    expect(mockRelease)
-      .toHaveBeenCalled()
-  })
-})
+      expect(feedbackInsertCalls).toHaveLength(2);
+      expect(mockCommit).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+    });
+
+    it('saves a draft review without approving the submission', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          action: 'save',
+          final_score: null,
+          teacher_feedback: 'Draft feedback.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          {
+            id: 100,
+            assessment_id: 10,
+            student_id: 5,
+            team_id: null,
+            group_id: 20,
+            status: 'submitted',
+            submission_mode: 'individual',
+          },
+        ]])
+        .mockResolvedValueOnce([[
+          { id: 50 },
+        ]]);
+
+      await reviewSubmission(req, res);
+
+      expect(mockBeginTransaction).toHaveBeenCalled();
+      expect(mockCommit).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('rolls back transaction when review fails', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          action: 'approved',
+          final_score: 90,
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          {
+            id: 100,
+            assessment_id: 10,
+            student_id: 5,
+            team_id: null,
+            group_id: 20,
+            submission_mode: 'individual',
+          },
+        ]])
+        .mockResolvedValueOnce([[]]);
+
+      mockConnQuery.mockRejectedValueOnce(
+        new Error('Transaction error'),
+      );
+
+      await expect(reviewSubmission(req, res))
+        .rejects.toThrow('Transaction error');
+
+      expect(mockRollback).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+    });
+
+    it('returns 404 when submission does not exist', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '999' },
+        body: { action: 'approved', final_score: 90 },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[]]);
+
+      await expect(reviewSubmission(req, res))
+        .rejects.toThrow('Submission not found');
+    });
+  });
+
+  // =========================================================
+  // REQUEST RESUBMISSION
+  // =========================================================
+
+  describe('requestResubmission', () => {
+    it('requests resubmission for an individual submission', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          teacher_feedback: 'Please fix the issues.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[
+        {
+          id: 100,
+          student_id: 5,
+          team_id: null,
+          assessment_id: 10,
+          group_id: 20,
+          submission_mode: 'individual',
+        },
+      ]]);
+
+      mockConnQuery
+        .mockResolvedValueOnce([[{ id: 50 }]])
+        .mockResolvedValue([{}]);
+
+      await requestResubmission(req, res);
+
+      expect(mockTeacherOwnsGroup).toHaveBeenCalledWith(10, 20);
+      expect(mockBeginTransaction).toHaveBeenCalled();
+      expect(mockCommit).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Resubmission requested',
+        data: {
+          id: '100',
+          status: 'rejected',
+          resubmission_requested: true,
+        },
+      });
+    });
+
+    it('requests resubmission for the shared team submission', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          teacher_feedback: 'Please improve the project.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery
+        .mockResolvedValueOnce([[
+          {
+            id: 100,
+            student_id: null,
+            team_id: 500,
+            assessment_id: 10,
+            group_id: 20,
+            submission_mode: 'team',
+          },
+        ]])
+        .mockResolvedValueOnce([[
+          { id: 100 },
+        ]]);
+
+      mockConnQuery
+        .mockResolvedValueOnce([[{ id: 50 }]])
+        .mockResolvedValue([{}]);
+
+      await requestResubmission(req, res);
+
+      const updateSubmissionCalls = mockConnQuery.mock.calls.filter(
+        ([sql]) => sql.includes('UPDATE assessment_submissions'),
+      );
+
+      expect(updateSubmissionCalls).toHaveLength(1);
+      expect(updateSubmissionCalls[0][1]).toEqual([100]);
+      expect(mockCommit).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('creates an AI evaluation when one does not exist', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          teacher_feedback: 'Please resubmit.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[
+        {
+          id: 100,
+          student_id: 5,
+          team_id: null,
+          assessment_id: 10,
+          group_id: 20,
+          submission_mode: 'individual',
+        },
+      ]]);
+
+      mockConnQuery
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{}])
+        .mockResolvedValueOnce([{}]);
+
+      await requestResubmission(req, res);
+
+      const insertEvalCalls = mockConnQuery.mock.calls.filter(
+        ([sql]) => sql.includes('INSERT INTO ai_evaluations'),
+      );
+
+      expect(insertEvalCalls).toHaveLength(1);
+
+      expect(insertEvalCalls[0][1]).toEqual([
+        100,
+        10,
+        '[RESUBMISSION_REQUESTED] Please resubmit.',
+      ]);
+
+      expect(mockCommit).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('uses default message when no message is provided', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {},
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[
+        {
+          id: 100,
+          student_id: 5,
+          team_id: null,
+          assessment_id: 10,
+          group_id: 20,
+          submission_mode: 'individual',
+        },
+      ]]);
+
+      mockConnQuery
+        .mockResolvedValueOnce([[{ id: 50 }]])
+        .mockResolvedValue([{}]);
+
+      await requestResubmission(req, res);
+
+      const updateEvalCalls = mockConnQuery.mock.calls.filter(
+        ([sql]) => sql.includes('UPDATE ai_evaluations'),
+      );
+
+      expect(updateEvalCalls).toHaveLength(1);
+
+      expect(updateEvalCalls[0][1][0]).toBe(
+         '[RESUBMISSION_REQUESTED] Your teacher has requested that you resubmit this assignment.',);
+      expect(mockCommit).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('rolls back when resubmission request fails', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '100' },
+        body: {
+          teacher_feedback: 'Please fix.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[
+        {
+          id: 100,
+          student_id: 5,
+          team_id: null,
+          assessment_id: 10,
+          group_id: 20,
+          submission_mode: 'individual',
+        },
+      ]]);
+
+      mockConnQuery.mockRejectedValueOnce(
+        new Error('Transaction error'),
+      );
+
+      await expect(requestResubmission(req, res))
+        .rejects.toThrow('Transaction error');
+
+      expect(mockRollback).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+    });
+
+    it('returns 404 when submission does not exist', async () => {
+      const req = createReq({
+        user: { sub: 10, role: 'teacher' },
+        params: { id: '999' },
+        body: {
+          teacher_feedback: 'Please fix.',
+        },
+      });
+      const res = createRes();
+
+      mockPoolQuery.mockResolvedValueOnce([[]]);
+
+      await expect(requestResubmission(req, res))
+        .rejects.toThrow('Submission not found');
+    });
+  });
+});

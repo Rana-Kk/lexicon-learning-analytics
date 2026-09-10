@@ -350,10 +350,8 @@ export default function TeacherAttendance() {
   // LOAD SELECTED GROUP
   // =====================================================
 
-  const openGroup = async (group: Group) => {
+  const loadGroupData = async (groupId: number) => {
     try {
-      setSelectedGroup(group)
-      setView('group')
       setGroupLoading(true)
       setError('')
 
@@ -362,10 +360,10 @@ export default function TeacherAttendance() {
         summaryResponse,
         attendanceResponse,
       ] = await Promise.all([
-        getGroupStudents(group.id),
-        getGroupAttendanceSummary(group.id),
+        getGroupStudents(groupId),
+        getGroupAttendanceSummary(groupId),
         getAttendance({
-          group_id: group.id,
+          group_id: groupId,
         }),
       ])
 
@@ -407,6 +405,12 @@ export default function TeacherAttendance() {
     } finally {
       setGroupLoading(false)
     }
+  }
+
+  const openGroup = async (group: Group) => {
+    setSelectedGroup(group)
+    setView('group')
+    await loadGroupData(group.id)
   }
 
   // =====================================================
@@ -1858,9 +1862,10 @@ export default function TeacherAttendance() {
 
         <button
           type="button"
-          onClick={() => {
-            setView('group')
+          onClick={async () => {
             setError('')
+            await loadGroupData(selectedGroup.id)
+            setView('group')
           }}
           className="text-sm mb-5"
           style={{

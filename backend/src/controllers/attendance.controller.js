@@ -8,9 +8,6 @@ import {
 const VALID_SESSIONS = ['morning', 'afternoon'];
 const VALID_STATUSES = ['present', 'late', 'absent', 'excused'];
 
-// POST /api/attendance/bulk (Admin or Teacher)
-// Records attendance for a whole group at once — one session, many students.
-// body: { group_id, attendance_date, session, records: [{ student_id, status, note? }] }
 export const recordBulkAttendance = asyncHandler(async (req, res) => {
   const { group_id, attendance_date, session, records } = req.body;
   const recorded_by = req.user.sub;
@@ -102,8 +99,6 @@ const conn = await pool.getConnection();
   });
 });
 
-// GET /api/attendance?group_id=&attendance_date=&session=
-// Lists raw records, filterable. Students are restricted to their own records.
 export const getAttendance = asyncHandler(async (req, res) => {
   const { group_id, attendance_date, session, student_id } = req.query;
 
@@ -150,8 +145,6 @@ export const getAttendance = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, count: rows.length, data: rows });
 });
 
-// GET /api/attendance/student/:studentId/summary
-// Present/late/absent/excused counts + overall percentage for one student.
 export const getStudentAttendanceSummary = asyncHandler(async (req, res) => {
   const { studentId } = req.params;
 
@@ -159,9 +152,6 @@ export const getStudentAttendanceSummary = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'Access denied: You can only view your own attendance summary.');
   }
 
-  // A teacher may only view the attendance summary of a student enrolled in
-  // one of their own assigned groups (proposal §4: teachers are scoped to
-  // their assigned groups/students).
   if (req.user.role === 'teacher' && !(await teacherHasStudent(req.user.sub, studentId))) {
     throw new ApiError(403, 'Access denied: This student is not in one of your assigned groups.');
   }
@@ -189,9 +179,6 @@ export const getStudentAttendanceSummary = asyncHandler(async (req, res) => {
   });
 });
 
-// GET /api/attendance/group/:groupId/summary
-// Per-student breakdown for a whole group, plus a group-level average — used
-// by teacher/admin analytics.
 export const getGroupAttendanceSummary = asyncHandler(async (req, res) => {
   const { groupId } = req.params;
 
@@ -329,7 +316,6 @@ export const getMyAttendanceAppeals = asyncHandler(async (req, res) => {
 });
 const VALID_APPEAL_STATUSES = ['accepted', 'rejected'];
 
-// GET /api/attendance/appeals/pending (Admin or Teacher)
 export const getPendingAttendanceAppeals = asyncHandler(async (req, res) => {
   const { group_id } = req.query;
 
@@ -366,9 +352,6 @@ export const getPendingAttendanceAppeals = asyncHandler(async (req, res) => {
 
   res.json({ success: true, count: rows.length, data: rows });
 });
-// PUT /api/attendance/appeals/:id/review (Admin or Teacher)
-// body: { status: 'accepted' | 'rejected' }
-// accepted -> ilgili yoklama kaydı 'present' yapılır (öğrenci aslında derste var sayılır)
 export const reviewAttendanceAppeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;

@@ -12,6 +12,12 @@ export const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   dateStrings: true, // return DATE/TIMESTAMP as strings, not JS Date objects
+  ...(process.env.DB_SSL === 'true'
+    ? { ssl: { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } }
+    : {}),
+
+
+
 })
 
 export async function testConnection() {

@@ -15,8 +15,6 @@ export const createCompetency = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'name is required');
   }
 
-  // Eğer öğretmen grup seçerek competency oluşturuyorsa,
-  // o grubun gerçekten öğretmene ait olduğunu kontrol et.
   if (
     req.user.role === 'teacher' &&
     group_id &&
@@ -25,7 +23,6 @@ export const createCompetency = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'You do not have access to this group');
   }
 
-  // Grup gerçekten var mı?
   if (group_id) {
     const [group] = await pool.query(
       'SELECT id FROM student_groups WHERE id = ?',
@@ -42,7 +39,6 @@ export const createCompetency = asyncHandler(async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    // 1. Competency oluştur
     const [result] = await conn.query(
       `INSERT INTO competencies (name, description)
        VALUES (?, ?)`,
@@ -51,7 +47,6 @@ export const createCompetency = asyncHandler(async (req, res) => {
 
     const competencyId = result.insertId;
 
-    // 2. Eğer grup seçildiyse otomatik olarak gruba bağla
     if (group_id) {
       await conn.query(
         `INSERT INTO group_competencies (group_id, competency_id)
@@ -92,7 +87,6 @@ export const getStudentCompetencies = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'student_id is required');
   }
 
-  // Teacher can only access students in their own groups.
   if (
     req.user.role === 'teacher' &&
     !(await teacherHasStudent(req.user.sub, sid))

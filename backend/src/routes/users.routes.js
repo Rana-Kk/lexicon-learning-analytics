@@ -10,7 +10,6 @@ router.patch('/profile/github', usersController.updateMyGithubUsername);
 
 router.get('/', authorize('admin', 'teacher'), usersController.getUsers);
 
-// Keep specific routes before '/:id'.
 router.get(
   '/:id/academic-overview',
   authorize('teacher', 'admin'),

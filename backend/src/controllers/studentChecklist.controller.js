@@ -112,23 +112,6 @@ export const getStudentChecklist = asyncHandler(
     );
 
 
-    // --------------------------------------------------------
-    // GET CHECKLIST CRITERIA
-    //
-    // IMPORTANT:
-    //
-    // assessment_checklist_results does NOT have student_id.
-    //
-    // Student relationship:
-    //
-    // assessment_checklist_results
-    //        ↓ ai_evaluation_id
-    // ai_evaluations
-    //        ↓ submission_id
-    // assessment_submissions
-    //        ↓ student_id
-    //
-    // --------------------------------------------------------
 
     const [criteria] = await pool.query(
       `
@@ -600,12 +583,6 @@ export const saveStudentChecklist = asyncHandler(
         }
 
 
-        // ----------------------------------------------------
-        // AI HAS NOT CREATED THIS CRITERION RESULT
-        //
-        // Create a row connected to the AI evaluation.
-        // AI fields remain NULL.
-        // ----------------------------------------------------
 
         else {
 

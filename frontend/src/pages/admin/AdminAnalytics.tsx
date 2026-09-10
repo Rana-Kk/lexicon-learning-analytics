@@ -106,7 +106,6 @@ function getProgress(row: GroupAnalyticsRow): number {
 export default function AdminAnalytics() {
   const [groupAnalytics, setGroupAnalytics] = useState<GroupAnalyticsRow[]>([])
 
-  // Organisation structure data
   const [courses, setCourses] = useState<Course[]>([])
   const [orgGroups, setOrgGroups] = useState<Group[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -138,9 +137,6 @@ export default function AdminAnalytics() {
         getUsers('student'),
       ])
 
-      /*
-       * Group performance analytics (attendance / quiz chart)
-       */
       const groupsData = getData(groupsResponse)
 
       if (Array.isArray(groupsData)) {
@@ -151,9 +147,7 @@ export default function AdminAnalytics() {
         setGroupAnalytics([])
       }
 
-      /*
-       * Organisation structure: courses -> groups -> teams
-       */
+       
       setCourses(coursesResponse?.data ?? [])
       setOrgGroups(orgGroupsResponse?.data ?? [])
       setTeams(teamsResponse?.data ?? [])
@@ -176,9 +170,6 @@ export default function AdminAnalytics() {
     }))
   }, [groupAnalytics])
 
-  /*
-   * Overall statistics calculated from the real group data.
-   */
   const summary = useMemo(() => {
     if (!groupAnalytics.length) {
       return {
@@ -213,9 +204,7 @@ export default function AdminAnalytics() {
     }
   }, [groupAnalytics])
 
-  /*
-   * Course -> Groups -> Teams breakdown
-   */
+  
   const teamsByGroup = useMemo(() => {
     const map = new Map<string, Team[]>()
     for (const team of teams) {

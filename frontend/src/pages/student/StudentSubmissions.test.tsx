@@ -31,12 +31,20 @@ const mockedGetSubmissionById = vi.mocked(getSubmissionById)
 const mockedCreateSubmission = vi.mocked(createSubmission)
 const mockedGetAssessmentById = vi.mocked(getAssessmentById)
 
+// Testin her çalıştırıldığında geçerli kalması için "bugünden 30 gün sonrası"
+// olarak hesaplanıyor; sabit bir tarih ileride geçmişte kalıp testi kırardı.
+function futureDateString(daysFromNow: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + daysFromNow)
+  return d.toISOString().slice(0, 10)
+}
+
 const notSubmittedAssessment = {
 id: 1,
 title: 'Build a REST API',
 description: 'Create endpoints.',
 group_name: 'Group A',
-due_date: '2026-02-01',
+due_date: futureDateString(30),
 max_score: 100,
 submission_mode: 'individual',
 }
@@ -72,7 +80,7 @@ new Promise(() => {})
 )
 
  
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   screen.getByText('Loading your submissions...')
@@ -87,7 +95,7 @@ assessments: [],
 })
 
  
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   await screen.findByText(
@@ -106,7 +114,7 @@ mockedGetStudentAssessments.mockRejectedValueOnce(
   new Error('Could not load assignments.')
 )
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   await screen.findByText('Could not load assignments.')
@@ -133,7 +141,7 @@ it('renders assignment details and a submission form for a not-submitted assignm
 mockBaseLoad()
 
  
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   await screen.findByRole('heading', {
@@ -160,7 +168,7 @@ const user = userEvent.setup()
  
 mockBaseLoad()
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 await screen.findByRole('heading', {
   name: 'Build a REST API',
@@ -216,7 +224,7 @@ mockBaseLoad()
 
 mockedCreateSubmission.mockResolvedValue({} as any)
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 await screen.findByRole('heading', {
   name: 'Build a REST API',
@@ -280,7 +288,7 @@ mockedGetAssessmentById.mockResolvedValue({
   },
 } as any)
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   await screen.findByText(
@@ -343,7 +351,7 @@ mockedGetAssessmentById.mockResolvedValue({
   },
 } as any)
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   await screen.findByText(
@@ -406,7 +414,7 @@ mockedGetAssessmentById.mockResolvedValue({
   },
 } as any)
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 expect(
   await screen.findByText('Submission not approved')
@@ -446,7 +454,7 @@ mockedGetAssessmentById.mockResolvedValue({
   },
 } as any)
 
-render(<StudentSubmissions />)
+render(<StudentSubmissions currentUserId={1} />)
 
 await screen.findByRole('heading', {
   name: 'Build a REST API',
@@ -491,7 +499,7 @@ mockedGetAssessmentById.mockResolvedValue({
 } as any)
 
 render(
-  <StudentSubmissions assessmentId={2} />
+  <StudentSubmissions assessmentId={2} currentUserId={1} />
 )
 
 expect(

@@ -29,11 +29,9 @@ router.get(
 
 router.post('/bulk', authorize('admin', 'teacher'), recordBulkAttendance);
 
-// Student appeals — kendi itirazlarını görme/oluşturma
 router.get('/appeals', getMyAttendanceAppeals);
 router.post('/appeals', createAttendanceAppeal);
 
-// Teacher/Admin — bekleyen itirazları görme ve karar verme
 router.get('/appeals/pending', authorize('admin', 'teacher'), getPendingAttendanceAppeals);
 router.put('/appeals/:id/review', authorize('admin', 'teacher'), reviewAttendanceAppeal);
 

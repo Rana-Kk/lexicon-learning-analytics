@@ -5,11 +5,9 @@ async function seedDatabase() {
   try {
     console.log('[Seed] Inserting default users...');
 
-    // Şifreleri hashle
     const adminPassword = await bcrypt.hash('admin123', 10);
     const teacherPassword = await bcrypt.hash('teacher1234', 10);
 
-    // 1. Admin Kullanıcısı (password_hash sütunu kullanılıyor)
     await pool.query(
       `INSERT INTO users (name, email, password_hash, role, github_username) 
        VALUES (?, ?, ?, 'admin', ?) 
@@ -17,7 +15,6 @@ async function seedDatabase() {
       ['System Admin', 'admin@test.com', adminPassword, 'admin-gh']
     );
 
-    // 2. Öğretmen Kullanıcısı (Teacher Jane)
     await pool.query(
       `INSERT INTO users (name, email, password_hash, role, github_username) 
        VALUES (?, ?, ?, 'teacher', ?) 

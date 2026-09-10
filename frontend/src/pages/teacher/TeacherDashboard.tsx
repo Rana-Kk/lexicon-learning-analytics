@@ -36,8 +36,6 @@ export default function TeacherDashboard({ onNavigate }: Props) {
         const myAssessments = assRes.data || []
         const myAssessmentIds = new Set(myAssessments.map((a: any) => a.id))
 
-        // /submissions henüz backend'de teacher-scoped olmayabilir; kendi
-        // assessment'larımıza ait olanlarla sınırlandırıyoruz.
         const mySubmissions = (subRes.data || []).filter((s: any) => myAssessmentIds.has(s.assessment_id))
 
         setGroups(myGroups)

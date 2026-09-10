@@ -946,3 +946,76 @@ export const saveStudentChecklist = (
   method: 'PUT',
   body: JSON.stringify(data)
 })
+
+/* =========================
+   TASKS (weekly team discussion tasks)
+========================= */
+
+export const getTasks = (
+  params?: { course_id?: number | string; status?: string }
+) => {
+  const q = new URLSearchParams()
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value != null) q.append(key, String(value))
+  })
+  return apiFetch(`/tasks${q.toString() ? `?${q.toString()}` : ''}`)
+}
+
+export const getTaskById = (id: number | string) =>
+  apiFetch(`/tasks/${id}`)
+
+export const createTask = (data: {
+  course_id: number | string
+  title: string
+  description: string
+  team_ids: (number | string)[]
+}) =>
+  apiFetch('/tasks', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  })
+
+export const updateTaskNote = (
+  id: number | string,
+  teacher_note: string
+) =>
+  apiFetch(`/tasks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ teacher_note })
+  })
+
+export const closeTask = (
+  id: number | string,
+  teacher_note?: string
+) =>
+  apiFetch(`/tasks/${id}/close`, {
+    method: 'PATCH',
+    body: JSON.stringify({ teacher_note })
+  })
+
+/* =========================
+   PEER EVALUATIONS
+   contextType: 'task' | 'submission'
+========================= */
+
+export const submitPeerEvaluations = (
+  contextType: 'task' | 'submission',
+  contextId: number | string,
+  evaluations: { evaluated_id: number | string; score: number; comment?: string }[]
+) =>
+  apiFetch(`/${contextType === 'task' ? 'tasks' : 'submissions'}/${contextId}/peer-evaluations`, {
+    method: 'POST',
+    body: JSON.stringify({ evaluations })
+  })
+
+export const getMyPeerEvaluations = (
+  contextType: 'task' | 'submission',
+  contextId: number | string
+) =>
+  apiFetch(`/${contextType === 'task' ? 'tasks' : 'submissions'}/${contextId}/peer-evaluations/me`)
+
+export const getAllPeerEvaluations = (
+  contextType: 'task' | 'submission',
+  contextId: number | string
+) =>
+  apiFetch(`/${contextType === 'task' ? 'tasks' : 'submissions'}/${contextId}/peer-evaluations`)

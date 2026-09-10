@@ -6,12 +6,10 @@ import {
   createSubmission,
   getAssessmentById,
 } from '../../lib/api'
+import PeerEvaluationForm from '../../components/PeerEvaluationForm'
 
-// Student-facing steps — AI analysis is completely hidden
 const STUDENT_STEPS = ['Submitted', 'Teacher Review', 'Approved']
 
-// Map backend submission status (lowercase, from schema_v2.sql ENUM) to the
-// student-visible step index (0-based)
 function studentStep(status: string): number {
   switch (status) {
     case 'submitted':
@@ -28,10 +26,46 @@ function studentStep(status: string): number {
   }
 }
 
+const NOTIFIABLE_STATUSES = ['teacher_reviewed', 'approved', 'rejected']
+
+const SEEN_STATUS_STORAGE_KEY = 'student_submissions_seen_status'
+
+
+function getTodayLocalDate(): string {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function isDeadlinePassed(dueDate?: string | null): boolean {
+  if (!dueDate) return false
+  const due = dueDate.split('T')[0]
+  return due < getTodayLocalDate()
+}
+
+function loadSeenStatuses(): Record<number, string> {
+  try {
+    const raw = localStorage.getItem(SEEN_STATUS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveSeenStatuses(map: Record<number, string>) {
+  try {
+    localStorage.setItem(SEEN_STATUS_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+  }
+}
+
 interface Assessment {
   id: number
   title: string
   description?: string
+  group_id?: number
   group_name?: string
   due_date?: string
   max_score?: number
@@ -74,11 +108,9 @@ interface SubmissionDetail {
   ai_evaluations: AiEvaluation[]
   criteria_scores: CriterionScore[]
   checklist_results: ChecklistResult[]
+  team_members?: { id: number; name: string }[]
 }
 
-// Rubric criteria definitions only (name/description) — no points shown
-// to the student. Fetched separately via getAssessmentById, which is
-// safe for students to call.
 interface EvaluationCriterion {
   id: number
   name: string
@@ -87,9 +119,6 @@ interface EvaluationCriterion {
   max_score?: number | string | null
 }
 
-// Checklist analysis result for a single criterion — only the resolved
-// final value (teacher override if present, else AI). Only ever present
-// once the teacher has approved/sent the evaluation to the student.
 interface ChecklistResult {
   id: number
   name: string
@@ -116,7 +145,7 @@ function formatChecklistResult(item: ChecklistResult): string {
   return item.final_text_value || '—'
 }
 
-export default function StudentSubmissions({ assessmentId }: { assessmentId?: number }) {
+export default function StudentSubmissions({ assessmentId, currentUserId }: { assessmentId?: number; currentUserId: number }) {
   const [assessments, setAssessments] = useState<Assessment[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null)
@@ -127,8 +156,10 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
   const [urlError, setUrlError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [rubric, setRubric] = useState<EvaluationCriterion[]>([])
+  const [seenStatuses, setSeenStatuses] = useState<Record<number, string>>({})
 
   useEffect(() => {
+    setSeenStatuses(loadSeenStatuses())
     loadAssessments()
   }, [])
 
@@ -140,6 +171,7 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
     if (selectedId != null) {
       loadSubmission(selectedId)
       loadRubric(selectedId)
+      markAsSeen(selectedId)
     }
   }, [selectedId])
 
@@ -158,10 +190,6 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
     }
   }
 
-  // Fetch the full submission (with ai_evaluations + criteria_scores) for
-  // the selected assessment. getStudentAssessments already tells us whether
-  // a submission exists (submission_status), but the teacher's review
-  // comments only come back from /submissions/:id.
   async function loadSubmission(assessmentId: number) {
     setSubmission(null)
     setDetailLoading(true)
@@ -179,11 +207,6 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
     }
   }
 
-  // Fetch the rubric criteria *definitions* for this assignment (name and
-  // description only — no points, no results), so the student knows what
-  // they're being evaluated on before/while submitting. Checklist criteria
-  // are intentionally NOT fetched here — they only appear as results,
-  // once the teacher has approved the evaluation (see submission.checklist_results).
   async function loadRubric(assessmentId: number) {
     setRubric([])
     try {
@@ -194,10 +217,38 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
     }
   }
 
+  function markAsSeen(id: number) {
+    const target = assessments.find((a) => a.id === id)
+    const status = target?.submission_status
+    if (!status) return
+
+    setSeenStatuses((prev) => {
+      if (prev[id] === status) return prev
+      const next = { ...prev, [id]: status }
+      saveSeenStatuses(next)
+      return next
+    })
+  }
+
+  function hasUnseenUpdate(a: Assessment) {
+    const status = a.submission_status
+    if (!status || !NOTIFIABLE_STATUSES.includes(status)) return false
+    return seenStatuses[a.id] !== status
+  }
+
   const assessment = assessments.find((a) => a.id === selectedId)
+  const deadlinePassed = isDeadlinePassed(assessment?.due_date)
+
+  const sortedAssessments = [...assessments].sort((a, b) => b.id - a.id)
 
   const validateAndSubmit = async () => {
     setUrlError('')
+
+    if (deadlinePassed) {
+      setUrlError('The deadline for this assignment has passed. You can no longer submit or resubmit it.')
+      return
+    }
+
     if (!githubUrl.trim()) {
       setUrlError('Please enter a GitHub repository URL.')
       return
@@ -220,15 +271,11 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
     }
   }
 
-  // Backend status is lowercase (schema_v2.sql ENUM); fall back to the
-  // assignment-list status if the submission detail hasn't loaded yet.
   const status = submission?.status ?? assessment?.submission_status ?? 'Not Submitted'
   const stepIndex = studentStep(status)
   const isRejected = status === 'rejected'
   const isApproved = status === 'approved'
 
-  // ai_evaluations is ordered by id DESC on the backend, so [0] is always
-  // the latest review (the one the teacher approved/rejected).
   const latestEvaluation = submission?.ai_evaluations?.[0]
   const checklistResults = submission?.checklist_results ?? []
   const resubmissionRequested = Boolean(latestEvaluation?.teacher_comment?.startsWith('[RESUBMISSION_REQUESTED]'))
@@ -268,11 +315,26 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
 
       {/* Assessment tabs */}
       <div className="flex gap-2 mb-5 flex-wrap">
-        {assessments.map((a) => (
-          <button key={a.id} onClick={() => setSelectedId(a.id)} className="px-4 py-2 rounded-lg text-sm font-medium" style={{ background: selectedId === a.id ? 'var(--primary)' : 'var(--card)', color: selectedId === a.id ? 'white' : 'var(--foreground)', border: `1px solid ${selectedId === a.id ? 'var(--primary)' : 'var(--border)'}`, cursor: 'pointer' }}>
-            {a.title}
-          </button>
-        ))}
+        {sortedAssessments.map((a) => {
+          const unseen = hasUnseenUpdate(a)
+          return (
+            <button
+              key={a.id}
+              onClick={() => setSelectedId(a.id)}
+              className="relative px-4 py-2 rounded-lg text-sm font-medium"
+              style={{ background: selectedId === a.id ? 'var(--primary)' : 'var(--card)', color: selectedId === a.id ? 'white' : 'var(--foreground)', border: `1px solid ${selectedId === a.id ? 'var(--primary)' : 'var(--border)'}`, cursor: 'pointer' }}
+            >
+              {a.title}
+              {unseen && (
+                <span
+                  className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full"
+                  style={{ background: '#EF4444', border: '2px solid var(--background, white)' }}
+                  title="New update from your teacher"
+                />
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {!assessment ? (
@@ -391,39 +453,66 @@ export default function StudentSubmissions({ assessmentId }: { assessmentId?: nu
             </div>
           )}
 
-          {/* Submit form */}
-          {(status === 'Not Submitted' || resubmissionRequested) && (
-            <div className="rounded-xl p-5" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <p className="text-sm font-semibold mb-3" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                {resubmissionRequested ? 'Resubmit Your Repository' : (assessment.submission_mode === 'team' ? 'Submit Team Repository' : 'Submit Your Repository')}
-              </p>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>GitHub Repository URL</label>
-              <div className="flex gap-2">
-                <div className="flex-1 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#94A3B8' }}>⎇</span>
-                  <input
-                    type="url"
-                    value={githubUrl}
-                    onChange={(e) => { setGithubUrl(e.target.value); setUrlError('') }}
-                    placeholder="https://github.com/username/project-name"
-                    className="w-full pl-8 pr-3 py-2.5 rounded-lg text-sm mono"
-                    style={{ border: `1px solid ${urlError ? '#FCA5A5' : 'var(--border)'}`, background: 'var(--muted)', outline: 'none' }}
-                  />
-                </div>
-                <button
-                  onClick={validateAndSubmit}
-                  disabled={submitting}
-                  className="px-5 py-2.5 rounded-lg text-sm font-semibold flex-shrink-0"
-                  style={{ background: 'var(--primary)', color: 'white', border: 'none', cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting...' : (resubmissionRequested ? 'Resubmit Repository' : 'Submit Repository')}
-                </button>
-              </div>
-              {urlError && <p className="text-xs mt-1.5" style={{ color: '#B91C1C' }}>{urlError}</p>}
-              <p className="text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>
-                Submit your GitHub repository URL. Do not upload files directly.
-              </p>
+          {/* Group homework peer evaluation — since the AI gives the whole
+              team the same grade, this is how the teacher sees each
+              member's individual contribution. */}
+          {assessment.submission_mode === 'team' && submission?.id && (
+            <div className="mb-5">
+              <PeerEvaluationForm
+                contextType="submission"
+                contextId={submission.id}
+                members={submission?.team_members ?? []}
+                currentUserId={currentUserId}
+                title="Team Evaluation"
+                description="Rate how actively your teammates (and you) contributed to this group assignment, out of 5. Scores only go to the teacher."
+              />
             </div>
+          )}
+
+          {/* Submit / resubmit area */}
+          {(status === 'Not Submitted' || resubmissionRequested) && (
+            deadlinePassed ? (
+              <div className="rounded-xl p-5" style={{ background: '#FFF1F2', border: '1px solid #FECDD3' }}>
+                <p className="text-sm font-semibold mb-1" style={{ color: '#B91C1C', fontFamily: 'Outfit, sans-serif' }}>
+                  Deadline Passed
+                </p>
+                <p className="text-sm" style={{ color: '#9F1239' }}>
+                  The due date for this assignment was {assessment.due_date?.split('T')[0]}. You can no longer submit or resubmit a repository.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl p-5" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+                <p className="text-sm font-semibold mb-3" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  {resubmissionRequested ? 'Resubmit Your Repository' : (assessment.submission_mode === 'team' ? 'Submit Team Repository' : 'Submit Your Repository')}
+                </p>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>GitHub Repository URL</label>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#94A3B8' }}>⎇</span>
+                    <input
+                      type="url"
+                      value={githubUrl}
+                      onChange={(e) => { setGithubUrl(e.target.value); setUrlError('') }}
+                      placeholder="https://github.com/username/project-name"
+                      className="w-full pl-8 pr-3 py-2.5 rounded-lg text-sm mono"
+                      style={{ border: `1px solid ${urlError ? '#FCA5A5' : 'var(--border)'}`, background: 'var(--muted)', outline: 'none' }}
+                    />
+                  </div>
+                  <button
+                    onClick={validateAndSubmit}
+                    disabled={submitting}
+                    className="px-5 py-2.5 rounded-lg text-sm font-semibold flex-shrink-0"
+                    style={{ background: 'var(--primary)', color: 'white', border: 'none', cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                  >
+                    {submitting ? 'Submitting...' : (resubmissionRequested ? 'Resubmit Repository' : 'Submit Repository')}
+                  </button>
+                </div>
+                {urlError && <p className="text-xs mt-1.5" style={{ color: '#B91C1C' }}>{urlError}</p>}
+                <p className="text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>
+                  Submit your GitHub repository URL. Do not upload files directly.
+                </p>
+              </div>
+            )
           )}
 
           {/* Pending — any non-approved, non-rejected submitted state */}

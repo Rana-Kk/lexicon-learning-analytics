@@ -83,7 +83,7 @@ describe('TeacherCertificates', () => {
   it('keeps loading other groups when one group\'s students fail to load', async () => {
     const secondGroup = { id: 'g2', course_id: 'c2', course_name: 'Course B' }
     mockedGetMyGroups.mockResolvedValue({ data: [group, secondGroup] } as any)
-    mockedGetGroupStudents.mockImplementation((id: string) =>
+    mockedGetGroupStudents.mockImplementation((id: string | number) =>
       id === 'g1' ? Promise.reject(new Error('fail')) : Promise.resolve({ data: [student] } as any)
     )
     mockedGetCertificates.mockResolvedValue({ data: [] } as any)
@@ -131,7 +131,7 @@ describe('TeacherCertificates', () => {
     const groupNoCourse = { id: 'g2', course_id: '', course_name: '' }
     const secondStudent = { id: 's2', name: 'Grace Hopper' }
     mockedGetMyGroups.mockResolvedValue({ data: [group, groupNoCourse] } as any)
-    mockedGetGroupStudents.mockImplementation((id: string) =>
+    mockedGetGroupStudents.mockImplementation((id: string | number) =>
       Promise.resolve({ data: id === 'g1' ? [student] : [secondStudent] }) as any
     )
     mockedGetCertificates.mockResolvedValue({ data: [certificate] } as any)

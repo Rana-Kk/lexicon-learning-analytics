@@ -783,6 +783,39 @@ function CreateWizard({
   const isEditing = !!initialData
   const [saving, setSaving] = useState(false)
 
+  // Today's date (local, YYYY-MM-DD) — used to stop teachers from
+  // picking a due date in the past when CREATING a new assessment.
+  // Editing an existing assessment is left unrestricted on purpose,
+  // since a teacher may legitimately need to correct/backfill a date.
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }, [])
+
+  const [templates, setTemplates] = useState<ChecklistTemplate[]>([])
+  const [loadingTemplates, setLoadingTemplates] = useState(false)
+  const [loadingTemplate, setLoadingTemplate] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadTemplates = async () => {
+      setLoadingTemplates(true)
+      try {
+        const res = await getCriteriaTemplates()
+        if (!cancelled) setTemplates((res?.data || []) as ChecklistTemplate[])
+      } catch {
+        if (!cancelled) setTemplates([])
+      } finally {
+        if (!cancelled) setLoadingTemplates(false)
+      }
+    }
+    loadTemplates()
+    return () => { cancelled = true }
+  }, [])
+
   const [form, setForm] = useState({
     groupId: initialData
       ? String(initialData.group_id)
@@ -831,6 +864,10 @@ function CreateWizard({
               max_score: 100,
             },
           ],
+
+    criteriaTemplateId: initialData?.criteria_template_id
+      ? String(initialData.criteria_template_id)
+      : '',
 
     checklist:
       initialData?.checklist_criteria?.length
@@ -895,6 +932,36 @@ function CreateWizard({
     }))
   }
 
+  const handleChecklistTemplateChange = async (templateId: string) => {
+    updateForm('criteriaTemplateId', templateId)
+    if (!templateId) return
+
+    setLoadingTemplate(true)
+    try {
+      const res = await getCriteriaTemplateById(Number(templateId))
+      const template = res?.data as ChecklistTemplate
+      const criteria = Array.isArray(template?.criteria) ? template.criteria : []
+
+      setForm((previous) => ({
+        ...previous,
+        criteriaTemplateId: templateId,
+        checklist: criteria.map((criterion, index) => ({
+          id: criterion.id,
+          source_template_item_id: criterion.source_template_item_id ?? criterion.id,
+          name: criterion.name || '',
+          description: criterion.description || '',
+          criterion_type: criterion.criterion_type || 'yes_no',
+          max_score: criterion.max_score ?? null,
+          sort_order: index + 1,
+        })),
+      }))
+    } catch (error: any) {
+      alert(error?.message || 'Failed to load checklist template')
+    } finally {
+      setLoadingTemplate(false)
+    }
+  }
+
   const addChecklistCriterion = () => {
     setForm((previous) => ({
       ...previous,
@@ -953,6 +1020,13 @@ function CreateWizard({
       return
     }
 
+    // Only enforced when creating a brand-new assessment. Editing an
+    // existing one is intentionally left free of this restriction.
+    if (!isEditing && form.dueDate && form.dueDate < todayStr) {
+      alert('Due date cannot be in the past.')
+      return
+    }
+
     if (!form.maxScore || Number(form.maxScore) <= 0) {
       alert('Max score must be greater than 0')
       return
@@ -979,6 +1053,8 @@ function CreateWizard({
     setSaving(true)
 
     try {
+      console.log("FORM DUE DATE:", form.dueDate);
+
       const payload = {
         group_id: Number(form.groupId),
 
@@ -1021,6 +1097,9 @@ function CreateWizard({
             })
           ),
 
+        criteria_template_id:
+          form.criteriaTemplateId ? Number(form.criteriaTemplateId) : null,
+
         checklist_criteria:
           form.checklist.map(
             (criterion, index) => ({
@@ -1045,6 +1124,7 @@ function CreateWizard({
             })
           ),
       }
+      console.log("PAYLOAD:", payload);
 
       if (isEditing && initialData) {
         await apiFetch(
@@ -1301,6 +1381,10 @@ function CreateWizard({
           <input
             type="date"
             value={form.dueDate}
+            // Block picking a past date from the native date picker
+            // itself — but only while creating. When editing, leave
+            // it unrestricted so a teacher can correct an old date.
+            min={isEditing ? undefined : todayStr}
             onChange={(event) =>
               updateForm(
                 'dueDate',
@@ -1313,6 +1397,15 @@ function CreateWizard({
               background: 'var(--background)',
             }}
           />
+
+          {!isEditing && (
+            <p
+              className="text-xs mt-1"
+              style={{ color: 'var(--muted-foreground)' }}
+            >
+              Must be today or later.
+            </p>
+          )}
         </div>
 
 
@@ -1501,6 +1594,36 @@ function CreateWizard({
           border: '1px solid var(--border)',
         }}
       >
+
+        <div className="mb-4">
+          <label className="block text-xs font-medium mb-2">
+            Checklist Template
+          </label>
+          <select
+            value={form.criteriaTemplateId}
+            onChange={(event) => handleChecklistTemplateChange(event.target.value)}
+            disabled={loadingTemplates || loadingTemplate}
+            className="w-full px-3 py-2 rounded-lg text-sm"
+            style={{
+              border: '1px solid var(--border)',
+              background: 'var(--background)',
+            }}
+          >
+            <option value="">
+              {loadingTemplates ? 'Loading templates...' : 'Select a checklist template (optional)'}
+            </option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          {loadingTemplate && (
+            <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>
+              Loading template criteria...
+            </p>
+          )}
+        </div>
 
         <div className="flex justify-between items-center mb-4">
 

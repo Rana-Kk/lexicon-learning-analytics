@@ -24,10 +24,6 @@ type ChecklistCriterion = {
   description?: string | null
   criterion_type?: string | null
   max_score?: number | string | null
-
-  // The backend already resolves the teacher-overrides-AI
-  // priority into `final`, and also exposes the raw `ai`
-  // and `teacher` values separately.
   ai?: ChecklistValueSet | null
   teacher?: ChecklistValueSet | null
   final?: ChecklistValueSet | null
@@ -61,14 +57,6 @@ const date = (value?: string | null) => {
   return value ? value.split('T')[0] : '—'
 }
 
-/**
- * Displays the checklist result value.
- *
- * The backend already resolves the priority
- * (teacher value if present, otherwise AI value)
- * into `criterion.final`, so we just format it
- * for display here.
- */
 function getChecklistValue(
   criterion: ChecklistCriterion
 ): string {
@@ -77,7 +65,6 @@ function getChecklistValue(
 
   if (!final) return '—'
 
-  // YES / NO
   if (type === 'yes_no' || type === 'boolean') {
     if (
       final.yes_no_value === null ||
@@ -92,7 +79,6 @@ function getChecklistValue(
       : 'No'
   }
 
-  // SCORE
   if (type === 'score') {
     if (
       final.score_value === null ||
@@ -104,14 +90,10 @@ function getChecklistValue(
     return String(final.score_value)
   }
 
-  // TEXT
   if (type === 'text') {
     return final.text_value || '—'
   }
 
-  // Fallback:
-  // If the criterion type isn't what we expect,
-  // check the available values directly.
   if (
     final.score_value !== null &&
     final.score_value !== undefined

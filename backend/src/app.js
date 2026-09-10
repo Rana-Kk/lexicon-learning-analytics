@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import errorHandler from './middleware/errorHandler.js';
 
-// Rotalar
 import authRoutes from './routes/auth.routes.js';
 import coursesRoutes from './routes/courses.routes.js';
 import groupsRoutes from './routes/groups.routes.js';
@@ -19,6 +18,7 @@ import reportsRoutes from './routes/reports.routes.js';
 import teamsRoutes from './routes/teams.routes.js';
 import studentChecklistRoutes from './routes/studentChecklist.routes.js';
 import criteriaTemplatesRoutes from './routes/criteriaTemplates.routes.js';
+import tasksRoutes from './routes/tasks.routes.js';
 
 const app = express();
 
@@ -26,7 +26,6 @@ app.use(cors());
 app.use(express.json());
 
 
-// API Uçları
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', coursesRoutes);
 app.use('/api/groups', groupsRoutes);
@@ -43,8 +42,8 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/criteria-templates', criteriaTemplatesRoutes);
 app.use('/api/student-checklists', studentChecklistRoutes);
+app.use('/api/tasks', tasksRoutes);
 
-// Hata Yakalayıcı (En altta kalmalı)
 app.use(errorHandler);
 
 export { app };

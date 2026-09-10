@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { apiFetch, ApiError } from '../../lib/api'
+import { apiFetch, ApiError, getAllPeerEvaluations } from '../../lib/api'
 import type { TeacherPage } from '../../layouts/TeacherLayout'
 
 
@@ -53,6 +53,7 @@ interface SubmissionDetail {
   assessment_description?: string
   assessment_max_score: number
   group_id?: number
+  team_id?: number | null
   student_id: number
   student_name: string
   student_email: string
@@ -73,15 +74,26 @@ interface SubmissionDetail {
   suggested_next_steps?: string | null
 }
 
+interface PeerEvalSummaryRow {
+  evaluated_id: number
+  student_name: string
+  avg_score: number | string
+  vote_count: number
+}
+
+interface PeerEvalDetailRow {
+  evaluator_id: number
+  evaluated_id: number
+  score: number
+  comment: string | null
+}
+
 const AI_STATUS_CFG: Record<string, { bg: string; color: string; label: string }> = {
   draft: { bg: '#FEF3C7', color: '#B45309', label: 'AI Draft — Awaiting Review' },
   approved: { bg: '#DCFCE7', color: '#15803D', label: 'Approved' },
   rejected: { bg: '#FEE2E2', color: '#B91C1C', label: 'Rejected' },
 }
 
-// Local editable shape for one checklist criterion row. `teacher_yes_no`
-// is kept as a string ('', 'yes', 'no') so an <select> can represent the
-// "not evaluated yet" state without relying on tri-state booleans.
 interface ChecklistEditItem {
   id: number
   name: string
@@ -114,9 +126,6 @@ function aiChecklistDisplay(item: ChecklistEditItem): string {
 
 interface Props {
   onNavigate?: (page: TeacherPage, submissionId?: number) => void
-  // Passed in when the teacher clicked "Review →" on a specific submission
-  // from TeacherSubmissions.tsx, so this page opens directly on that record
-  // instead of defaulting to the first item in the list.
   initialSubmissionId?: number | null
 }
 
@@ -135,7 +144,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  // Edit / Override States
   const [finalScore, setFinalScore] = useState<number>(0)
   const [teacherFeedback, setTeacherFeedback] = useState<string>('')
   const [strengths, setStrengths] = useState('')
@@ -144,8 +152,9 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
   const [suggestedNextSteps, setSuggestedNextSteps] = useState('')
   const [criteriaEdits, setCriteriaEdits] = useState<CriterionScore[]>([])
   const [checklistEdits, setChecklistEdits] = useState<ChecklistEditItem[]>([])
+  const [peerSummary, setPeerSummary] = useState<PeerEvalSummaryRow[]>([])
+  const [peerDetails, setPeerDetails] = useState<PeerEvalDetailRow[]>([])
 
-  // 1. Fetch teacher-scoped groups, assessments and submissions.
   const loadSubmissions = async () => {
     setLoadingList(true)
     setError('')
@@ -214,6 +223,15 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
   const selectedAssessment =
     assessments.find((assessment) => assessment.id === selectedAssessmentId) ?? null
 
+  const peerDetailsByStudent = useMemo(() => {
+    const m = new Map<number, PeerEvalDetailRow[]>()
+    for (const row of peerDetails) {
+      if (!m.has(row.evaluated_id)) m.set(row.evaluated_id, [])
+      m.get(row.evaluated_id)!.push(row)
+    }
+    return m
+  }, [peerDetails])
+
   const handleGroupChange = (groupId: number) => {
     setSelectedGroupId(groupId)
 
@@ -233,8 +251,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
     setSelectedSubId(firstSubmission?.id ?? null)
   }
 
-  // If the teacher navigated here from a specific submission's "Review →"
-  // button, honor that id even after the list has already loaded once.
   useEffect(() => {
     if (initialSubmissionId == null) return
 
@@ -252,6 +268,8 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
   useEffect(() => {
     if (!selectedSubId) {
       setActiveSub(null)
+      setPeerSummary([])
+      setPeerDetails([])
       return
     }
 
@@ -263,7 +281,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
         const data: SubmissionDetail = res.data
         setActiveSub(data)
 
-        // Initialize review form values
         setFinalScore(data.final_score ?? data.ai_score ?? 0)
         setTeacherFeedback(data.teacher_feedback || '')
         setStrengths(data.strengths || '')
@@ -306,6 +323,17 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
             teacher_feedback: cc.teacher_feedback || '',
           }))
         )
+
+        // Team homework: since the AI gives everyone the same grade, this is
+        // where the teacher sees how much each teammate actually contributed.
+        try {
+          const peerRes = await getAllPeerEvaluations('submission', selectedSubId)
+          setPeerSummary(peerRes.data?.summary ?? [])
+          setPeerDetails(peerRes.data?.details ?? [])
+        } catch {
+          setPeerSummary([])
+          setPeerDetails([])
+        }
       } catch (err) {
         setError('Failed to load submission evaluation details')
       } finally {
@@ -316,7 +344,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
     fetchDetail()
   }, [selectedSubId])
 
-  // Update criterion score and auto-recalculate total score
   const handleCriterionScoreChange = (idx: number, newScore: number) => {
     const next = [...criteriaEdits]
     const currentMax = next[idx].criterion_max_score
@@ -329,7 +356,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
     }
     setCriteriaEdits(next)
 
-    // Re-sum total score
     const total = next.reduce((sum, item) => sum + Number(item.teacher_final_score || 0), 0)
     setFinalScore(total)
   }
@@ -346,7 +372,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
     setChecklistEdits(next)
   }
 
-  // Ask the student to resubmit the assignment.
   const requestResubmission = async () => {
     if (!activeSub) return
     setSavingAction('resubmission')
@@ -372,7 +397,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
     }
   }
 
-  // Shared submit for Save / Approve / Reject — only the action differs.
   const submitReview = async (action: 'save' | 'approved' | 'rejected') => {
     if (!activeSub) return
     setSavingAction(action)
@@ -413,7 +437,6 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
       }
       setNotice(messages[action])
       await loadSubmissions()
-      // Refresh the detail view to reflect the new status/values from the server.
       const res = await apiFetch(`/submissions/${activeSub.id}`)
       setActiveSub(res.data)
     } catch (err: any) {
@@ -548,7 +571,9 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
                         }}
                       >
                         <div className="flex justify-between items-start gap-2 mb-1">
-                          <p className="text-sm font-semibold truncate">{sub.student_name || `Student #${sub.student_id}`}</p>
+                          <p className="text-sm font-semibold truncate"> {sub.student_name ||
+    sub.submitted_by_name ||
+    (sub.team_id ? 'Team Submission' : `Student #${sub.student_id}`)}</p>
                           <span
                             className="text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0"
                             style={{
@@ -623,6 +648,59 @@ export default function TeacherAIEvaluation({ onNavigate, initialSubmissionId }:
                     <span className="text-sm font-bold mono">{activeSub.ai_score ?? '—'} / {activeSub.assessment_max_score} pts</span>
                   </div>
                 </div>
+
+                {/* Team contribution: this repo/grade was submitted once for the
+                    whole team, so this is where individual contribution shows up. */}
+                {peerSummary.length > 0 && (
+                  <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+                    <div className="px-5 py-3 border-b" style={{ borderColor: 'var(--border)', background: 'var(--muted)' }}>
+                      <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+                        Team Contribution (Peer Evaluation)
+                      </p>
+                    </div>
+                    <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                      {peerSummary.map((row) => {
+                        const rowDetails = peerDetailsByStudent.get(row.evaluated_id) || []
+                        const selfEval = rowDetails.find((d) => d.evaluator_id === row.evaluated_id)
+                        return (
+                        <div key={row.evaluated_id} className="px-5 py-3.5">
+                          <div className="flex items-center justify-between flex-wrap gap-1.5">
+                            <span className="text-sm font-medium">{row.student_name}</span>
+                            <div className="flex items-center gap-2">
+                              {selfEval && (
+                                <span
+                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full mono"
+                                  style={{ background: '#EDE9FE', color: '#6D28D9' }}
+                                  title="Score this student gave themselves"
+                                >
+                                  Self: {selfEval.score}/5
+                                </span>
+                              )}
+                              <span className="text-sm font-bold mono">
+                                {Number(row.avg_score).toFixed(1)} / 5
+                                <span className="text-xs font-normal ml-1.5" style={{ color: 'var(--muted-foreground)' }}>
+                                  ({row.vote_count} vote{row.vote_count === 1 ? '' : 's'})
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                          {rowDetails
+                            .filter((d) => d.comment)
+                            .map((d, i) => {
+                              const isSelf = d.evaluator_id === row.evaluated_id
+                              return (
+                                <p key={i} className="text-xs mt-1.5" style={{ color: 'var(--muted-foreground)' }}>
+                                  {isSelf && <span className="font-semibold" style={{ color: '#6D28D9' }}>Self · </span>}
+                                  “{d.comment}” <span className="mono">({d.score}/5)</span>
+                                </p>
+                              )
+                            })}
+                        </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* AI-generated overall feedback, teacher-editable */}
                 <div className="space-y-3">

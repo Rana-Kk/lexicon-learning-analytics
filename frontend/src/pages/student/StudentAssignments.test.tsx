@@ -14,12 +14,22 @@ vi.mock('../../lib/api', async () => {
 
 const mockedGetStudentAssessments = vi.mocked(getStudentAssessments)
 
+// Testin her çalıştırıldığında geçerli kalması için "bugünden 30 gün sonrası"
+// olarak hesaplanıyor; sabit bir tarih ileride geçmişte kalıp testi kırardı.
+function futureDateString(daysFromNow: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + daysFromNow)
+  return d.toISOString().slice(0, 10)
+}
+
+const notSubmittedDueDate = futureDateString(30)
+
 const notSubmitted = {
   id: 1,
   title: 'Build a REST API',
   description: 'Create a REST API with CRUD endpoints.',
   type: 'Project',
-  due_date: '2026-02-01',
+  due_date: notSubmittedDueDate,
   max_score: 100,
   submission_mode: 'individual',
   status: 'Not Submitted',
@@ -29,7 +39,7 @@ const approved = {
   id: 2,
   title: 'Frontend Dashboard',
   type: 'Assignment',
-  due_date: '2026-01-20',
+  due_date: futureDateString(-20),
   max_score: 50,
   submission_mode: 'team',
   submission_status: 'approved',
@@ -39,7 +49,7 @@ const rejectedNeedsResubmission = {
   id: 3,
   title: 'Database Design',
   type: 'Project',
-  due_date: '2026-01-15',
+  due_date: futureDateString(30),
   max_score: 80,
   submission_status: 'rejected',
   resubmission_requested: true,
@@ -50,7 +60,7 @@ const rejectedFinal = {
   id: 4,
   title: 'Auth Module',
   type: 'Project',
-  due_date: '2026-01-10',
+  due_date: futureDateString(-25),
   max_score: 60,
   submission_status: 'rejected',
   resubmission_requested: false,
@@ -103,7 +113,7 @@ describe('StudentAssignments', () => {
 
     expect(await screen.findByText('Build a REST API')).toBeInTheDocument()
     expect(screen.getByText('○ Individual')).toBeInTheDocument()
-    expect(screen.getByText('Due: 2026-02-01')).toBeInTheDocument()
+    expect(screen.getByText(`Due: ${notSubmittedDueDate}`)).toBeInTheDocument()
     expect(screen.getByText('Max: 100 pts')).toBeInTheDocument()
     expect(screen.getByText('Not Submitted')).toBeInTheDocument()
   })

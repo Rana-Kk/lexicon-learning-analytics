@@ -5,6 +5,7 @@ import type { User } from '../types'
 export type TeacherPage =
   | 'dashboard'
   | 'groups'
+  | 'tasks'
   | 'attendance'
   | 'assessments'
   | 'submissions'
@@ -19,6 +20,7 @@ export type TeacherPage =
 const BASE_NAV_ITEMS: { id: TeacherPage; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '⊞' },
   { id: 'groups', label: 'Groups & Teams', icon: '🗂' },
+  { id: 'tasks', label: 'Weekly Tasks', icon: '🗣' },
   { id: 'attendance', label: 'Attendance', icon: '✓' },
   { id: 'assessments', label: 'Assessments', icon: '📝' },
   { id: 'submissions', label: 'Submissions', icon: '⬆' },

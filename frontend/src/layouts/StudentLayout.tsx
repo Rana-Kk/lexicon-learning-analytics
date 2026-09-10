@@ -3,6 +3,7 @@ import type { User } from '../types'
 export type StudentPage =
   | 'dashboard'
   | 'team'
+  | 'tasks'
   | 'assignments'
   | 'submissions'
   | 'quizresults'
@@ -14,6 +15,7 @@ export type StudentPage =
 const NAV_ITEMS: { id: StudentPage; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'team', label: 'Team' },
+  { id: 'tasks', label: 'Weekly Tasks' },
   { id: 'assignments', label: 'My Assignments' },
   { id: 'submissions', label: 'My Submissions' },
   { id: 'quizresults', label: 'Quiz Results' },

@@ -238,13 +238,11 @@ async function syncStudentGroups(studentId, groupIds) {
     }
   }
 
-  // Öğrencinin mevcut grup ilişkilerini temizle
   await pool.query(
     'DELETE FROM group_students WHERE student_id = ?',
     [studentId]
   );
 
-  // Seçilen bütün grupları tekrar ekle
   for (const groupId of cleanGroupIds) {
     await enrollInGroup(studentId, groupId);
   }
@@ -380,8 +378,6 @@ export const importStudents = asyncHandler(async (req, res) => {
       const fullName =
         `${name}${surname ? ` ${surname}` : ''}`.trim();
 
-      // Excel'den gelen şifreyi kullan.
-      // Boşsa mevcut otomatik şifre sistemine düş.
       const providedPassword =
         String(row.password ?? '').trim();
 
@@ -463,8 +459,6 @@ export const importStudents = asyncHandler(async (req, res) => {
 export const updateUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  // Kullanıcı kendi profilini güncelleyebilir.
-  // Admin başka kullanıcıları da güncelleyebilir.
   const isOwnProfile = Number(req.user.sub) === Number(id);
   const isAdmin = req.user.role === 'admin';
 
@@ -493,7 +487,6 @@ export const updateUser = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'User to update not found');
   }
 
-  // Email değişiyorsa unique kontrolü yap
   if (email !== undefined) {
     await ensureUniqueUser(
       email.trim(),
@@ -524,7 +517,6 @@ export const updateUser = asyncHandler(async (req, res) => {
       throw new ApiError(400, 'Invalid role');
     }
 
-    // Sadece admin başka kullanıcının rolünü değiştirebilir
     if (!isAdmin && role !== existing[0].role) {
       throw new ApiError(403, 'You cannot change your own role');
     }
@@ -581,7 +573,6 @@ export const updateUser = asyncHandler(async (req, res) => {
     params.push(true);
   }
 
-  // Hiçbir normal alan ve group değişikliği yoksa hata
   if (!fields.length && group_ids === undefined) {
     throw new ApiError(400, 'No fields provided for update');
   }
@@ -610,7 +601,6 @@ export const updateUser = asyncHandler(async (req, res) => {
     await syncStudentGroups(id, group_ids);
   }
 
-  // Güncellenmiş kullanıcıyı tekrar getir
   const rows = await getUserRows('u.id = ?', [id]);
 
   res.json({
@@ -777,19 +767,6 @@ export const getStudentAcademicOverview = asyncHandler(async (req, res) => {
   // =========================
   // CHECKLIST RESULTS
   // =========================
-  //
-  // Doğru ilişki:
-  //
-  // assessment_checklist_criteria
-  //        ↓ assessment_id
-  // assessments
-  //        ↓
-  // assessment_submissions
-  //        ↓ submission_id
-  // ai_evaluations
-  //        ↓ ai_evaluation_id
-  // assessment_checklist_results
-  //
 
   const assessmentIds = assessmentRows.map(
     (assessment) => Number(assessment.id)
@@ -889,16 +866,11 @@ export const getStudentAcademicOverview = asyncHandler(async (req, res) => {
     const criteriaMap =
       checklistByAssessment.get(assessmentId);
 
-    // Aynı kriter için birden fazla evaluation varsa
-    // en güncel olanı kullanıyoruz.
     if (!criteriaMap.has(row.checklist_criterion_id)) {
 
       // =========================
       // TEACHER OVERRIDE
       // =========================
-      //
-      // Öğretmen bir değer girdiyse onu göster.
-      // Girmediyse AI sonucunu göster.
 
       const finalYesNo =
         row.teacher_yes_no_value !== null &&

@@ -4,47 +4,65 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { teacherOwnsGroup } from '../utils/scope.js';
 
 function normalizeDate(dateStr) {
-if (!dateStr || typeof dateStr !== 'string') return null;
+  if (dateStr === undefined || dateStr === null) {
+    return null;
+  }
 
-const trimmed = dateStr.trim();
+  if (typeof dateStr !== 'string') {
+    return null;
+  }
 
-if (!trimmed) return null;
+  const trimmed = dateStr.trim();
 
-const ymdMatch = trimmed.match(
-/^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])/
-);
+  if (!trimmed) {
+    return null;
+  }
 
-if (ymdMatch) {
-const year = ymdMatch[1];
-const month = ymdMatch[2].padStart(2, '0');
-const day = ymdMatch[3].padStart(2, '0');
+  // HTML <input type="date"> formatı:
+  // YYYY-MM-DD
+  const ymdMatch = trimmed.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
 
-return `${year}-${month}-${day}`;
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const month = ymdMatch[2];
+    const day = ymdMatch[3];
 
+    return `${year}-${month}-${day}`;
+  }
+
+  // ISO datetime gelirse:
+  // 2026-09-18T00:00:00.000Z
+  const isoMatch = trimmed.match(
+    /^(\d{4})-(\d{2})-(\d{2})T/
+  );
+
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  // Bazı formlar / import edilen dosyalar tarihi GG/AA/YYYY olarak
+  // gönderebiliyor (ör. "01/09/2026" -> 1 Eylül 2026). Bu format
+  // daha önce hiç işlenmiyordu ve sessizce null'a düşüyordu.
+  const dmyMatch = trimmed.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+  );
+
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+
+    if (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31) {
+      return null;
+    }
+
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
 }
-
-const dmyMatch = trimmed.match(
-/^(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](\d{4})/
-);
-
-if (dmyMatch) {
-const day = dmyMatch[1].padStart(2, '0');
-const month = dmyMatch[2].padStart(2, '0');
-const year = dmyMatch[3];
-
-return `${year}-${month}-${day}`;
-
-}
-
-const date = new Date(trimmed);
-
-if (!Number.isNaN(date.getTime())) {
-return date.toISOString().split('T')[0];
-}
-
-return null;
-}
-
 function validateAssignmentCriteria(criteria) {
 if (!Array.isArray(criteria)) {
 return;
@@ -197,7 +215,6 @@ data: assessments
 
 // ============================================================
 // GET /api/assessments/student
-// Student'ın kendi assessment'ları
 // ============================================================
 
 export const getStudentAssessments = asyncHandler(async (req, res) => {
@@ -333,7 +350,6 @@ if (assessmentRows.length === 0) {
 throw new ApiError(404, 'Assessment not found');
 }
 
-// Yeni supervisor-style assignment evaluation criteria
 const [assignmentCriteria] = await pool.query(
 `       SELECT
         id,
@@ -379,7 +395,6 @@ checklist_criteria: checklistCriteria
 export const getAssessmentReport = asyncHandler(async (req, res) => {
   const { id } = req.params
 
-  // Assessment bilgisi + teacher yetkisi
   const [assessmentRows] = await pool.query(
     `
     SELECT
@@ -399,7 +414,6 @@ export const getAssessmentReport = asyncHandler(async (req, res) => {
 
   const assessment = assessmentRows[0]
 
-  // Teacher sadece kendi grubunun assessment'ını görebilsin
   if (
     req.user.role === 'teacher' &&
     !(await teacherOwnsGroup(req.user.sub, assessment.group_id))
@@ -506,7 +520,6 @@ const totalStudents = Number(
     0
   )
 
-  // Pass threshold: %50
   const passScore = Number(assessment.max_score) * 0.5
 
   const passedStudents = scores.filter(
@@ -530,7 +543,6 @@ const totalStudents = Number(
   }
 
   scores.forEach((score) => {
-    // score'u max_score üzerinden yüzdeye çeviriyoruz
     const percentage =
       assessment.max_score > 0
         ? (score / assessment.max_score) * 100

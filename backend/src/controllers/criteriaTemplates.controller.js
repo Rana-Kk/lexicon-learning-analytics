@@ -3,7 +3,6 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 // GET /api/criteria-templates
-// Tüm şablonları, her birinin kriter listesiyle (criteria_template_items) birlikte döner.
 export const getAllCriteriaTemplates = asyncHandler(async (req, res) => {
   const [templates] = await pool.query(
     `SELECT id, name, description, created_at

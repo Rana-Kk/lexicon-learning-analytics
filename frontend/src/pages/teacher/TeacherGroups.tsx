@@ -20,7 +20,7 @@ import {
 } from '../../lib/api'
 
 /* ────────────────────────────────────────────────────────────────────
-   Types (backend field adları — snake_case)
+   Types 
 ───────────────────────────────────────────────────────────────────── */
 
 interface Course {
@@ -53,8 +53,6 @@ interface Team {
   id: number
   name: string
   group_id: number
-  // Backend'in tam döndürdüğü alan adı teams.controller.js'e göre değişebilir;
-  // hem "members" hem alternatif olası alan adlarını destekliyoruz.
   members?: { id: number; name: string; email?: string }[]
   member_count?: number
 }

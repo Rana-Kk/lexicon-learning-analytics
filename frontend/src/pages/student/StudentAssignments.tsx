@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getStudentAssessments } from '../../lib/api'
 import type { StudentPage } from '../../layouts/StudentLayout'
 
@@ -80,6 +80,20 @@ interface Assessment {
   rejection_comment?: string
 }
 
+function getTodayLocalDate(): string {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function isDeadlinePassed(dueDate?: string | null): boolean {
+  if (!dueDate) return false
+  const due = dueDate.split('T')[0]
+  return due < getTodayLocalDate()
+}
+
 export default function StudentAssignments({
   onNavigate,
 }: Props) {
@@ -109,6 +123,35 @@ export default function StudentAssignments({
       setLoading(false)
     }
   }
+
+  function needsAction(a: Assessment) {
+    const status =
+      a.submission_status || a.status || 'Not Submitted'
+
+    const isRejected = status === 'rejected'
+    const needsResubmission =
+      isRejected && !!a.resubmission_requested
+
+    const dueDate = a.due_date || a.dueDate
+    const deadlinePassed = isDeadlinePassed(dueDate)
+
+    if (deadlinePassed) return false
+
+    return status === 'Not Submitted' || needsResubmission
+  }
+
+  const sortedAssignments = useMemo(() => {
+    return [...assignments].sort((a, b) => {
+      const aNeedsAction = needsAction(a)
+      const bNeedsAction = needsAction(b)
+
+      if (aNeedsAction !== bNeedsAction) {
+        return aNeedsAction ? -1 : 1
+      }
+
+      return b.id - a.id
+    })
+  }, [assignments])
 
   if (loading) {
     return (
@@ -208,7 +251,7 @@ export default function StudentAssignments({
         </div>
       ) : (
         <div className="space-y-4">
-          {assignments.map((a) => {
+          {sortedAssignments.map((a) => {
             const status =
               a.submission_status ||
               a.status ||
@@ -250,6 +293,9 @@ export default function StudentAssignments({
               a.due_date ||
               a.dueDate ||
               '-'
+
+            const deadlinePassed =
+              dueDate !== '-' && isDeadlinePassed(dueDate)
 
             const maxScore =
               a.max_score ??
@@ -373,6 +419,12 @@ export default function StudentAssignments({
                         Due: {dueDate}
                       </span>
 
+                      {deadlinePassed && (status === 'Not Submitted' || needsResubmission) && (
+                        <span style={{ color: '#B91C1C', fontWeight: 600 }}>
+                          Deadline passed
+                        </span>
+                      )}
+
                       <span>
                         Max: {maxScore} pts
                       </span>
@@ -422,6 +474,21 @@ export default function StudentAssignments({
                         }}
                       >
                         View Result →
+                      </button>
+                    ) : deadlinePassed && (status === 'Not Submitted' || needsResubmission) ? (
+                      <button
+                        disabled
+                        className="text-sm font-semibold px-4 py-2 rounded-lg"
+                        style={{
+                          background: 'var(--secondary)',
+                          color: 'var(--muted-foreground)',
+                          border: '1px solid var(--border)',
+                          cursor: 'not-allowed',
+                          opacity: 0.8,
+                        }}
+                        title="The deadline for this assignment has passed"
+                      >
+                        Deadline Passed
                       </button>
                     ) : status === 'Not Submitted' ? (
                       <button

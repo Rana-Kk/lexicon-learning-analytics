@@ -2,7 +2,6 @@ import { pool } from '../config/db.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
-// Helper function to auto-format and sanitize date strings to YYYY-MM-DD
 function normalizeDate(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') {
     return null;
@@ -58,16 +57,13 @@ function normalizeDate(dateStr) {
 
   return null;
 }
-// 1. Get all courses
 export const getAllCourses = asyncHandler(async (req, res) => {
   const [courses] = await pool.query('SELECT * FROM courses ORDER BY id DESC');
   res.status(200).json({ success: true, count: courses.length, data: courses });
 });
 
-// Alias for route compatibility
 export const getCourses = getAllCourses;
 
-// 2. Get single course by ID
 export const getCourseById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const [course] = await pool.query('SELECT * FROM courses WHERE id = ?', [id]);
@@ -79,7 +75,6 @@ export const getCourseById = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: course[0] });
 });
 
-// 3. Create new course (Admin only)
 export const createCourse = asyncHandler(async (req, res) => {
   const { name, description, start_date, end_date } = req.body;
 
@@ -104,7 +99,6 @@ export const createCourse = asyncHandler(async (req, res) => {
   });
 });
 
-// 4. Update course (Admin only)
 export const updateCourse = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, description, start_date, end_date } = req.body;
@@ -131,7 +125,6 @@ export const updateCourse = asyncHandler(async (req, res) => {
   });
 });
 
-// 5. Delete course (Admin only)
 export const deleteCourse = asyncHandler(async (req, res) => {
   const { id } = req.params;
 

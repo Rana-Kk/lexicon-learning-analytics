@@ -18,6 +18,12 @@ vi.mock('jsonwebtoken', () => ({
   },
 }))
 
+// middleware/auth.js artık JWT_SECRET için "secretkey" varsayılanına
+// düşmüyor (bkz. auth.js). Bu testin, başka bir test dosyasının env'e
+// yazdığı değere sızarak (çalışma sırasına bağlı, kırılgan bir şekilde)
+// geçmesi yerine kendi secret'ını kendi tanımlaması gerekiyor.
+process.env.JWT_SECRET = 'test-secret'
+
 // ============================================================
 // IMPORT AFTER MOCK
 // ============================================================

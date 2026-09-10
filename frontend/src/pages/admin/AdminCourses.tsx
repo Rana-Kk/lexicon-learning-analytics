@@ -14,7 +14,6 @@ export default function AdminCourses() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Modal State
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingCourse, setEditingCourse] = useState<Course | null>(null)
@@ -42,7 +41,6 @@ export default function AdminCourses() {
     loadCourses()
   }, [])
 
-  // Open Create Modal
   const handleOpenCreate = () => {
     setEditingCourse(null)
     setForm({
@@ -54,7 +52,6 @@ export default function AdminCourses() {
     setShowModal(true)
   }
 
-  // Open Edit Modal
   const handleOpenEdit = (course: Course) => {
     setEditingCourse(course)
     setForm({
@@ -66,7 +63,6 @@ export default function AdminCourses() {
     setShowModal(true)
   }
 
-  // Create or Update Course
   const handleSave = async () => {
     if (!form.name.trim()) return
     setSaving(true)
@@ -100,7 +96,6 @@ export default function AdminCourses() {
     }
   }
 
-  // Delete Course
   const handleDelete = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this course? All associated groups and data will be permanently deleted.')) {
       return

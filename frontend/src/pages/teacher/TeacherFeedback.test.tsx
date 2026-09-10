@@ -179,7 +179,7 @@ describe('TeacherFeedback', () => {
     mockedGetGroups.mockResolvedValue({ data: [group, secondGroup] } as any)
     mockedGetFeedback.mockResolvedValue({ data: [feedbackItem] } as any)
     mockedGetFeedbackTemplates.mockResolvedValue({ data: [] } as any)
-    mockedGetGroupStudents.mockImplementation((id: number) =>
+    mockedGetGroupStudents.mockImplementation((id: string | number) =>
       Promise.resolve({ data: id === 2 ? [secondStudent] : [student] }) as any
     )
 

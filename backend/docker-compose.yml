@@ -3,6 +3,9 @@ services:
     build: .
     container_name: backend-app-1
     restart: on-failure
+    # Dockerfile artık prod'da "npm start" çalıştırıyor; local geliştirmede
+    # hot-reload (node --watch) istediğimiz için burada override ediyoruz.
+    command: npm run dev
     ports:
       - "3000:3000"
     environment:

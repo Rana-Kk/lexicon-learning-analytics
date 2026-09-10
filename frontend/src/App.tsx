@@ -19,6 +19,7 @@ import AdminAnalytics from './pages/admin/AdminAnalytics'
 import TeacherLayout, { type TeacherPage } from './layouts/TeacherLayout'
 import TeacherDashboard from './pages/teacher/TeacherDashboard'
 import TeacherGroups from './pages/teacher/TeacherGroups'
+import TeacherTasks from './pages/teacher/TeacherTasks'
 import TeacherAttendance from './pages/teacher/TeacherAttendance'
 import TeacherAssessments from './pages/teacher/TeacherAssessments'
 import TeacherSubmissions from './pages/teacher/TeacherSubmissions'
@@ -33,6 +34,7 @@ import TeacherFeedback from './pages/teacher/TeacherFeedback'
 import StudentLayout, { type StudentPage } from './layouts/StudentLayout'
 import StudentDashboard from './pages/student/StudentDashboard'
 import StudentTeam from './pages/student/StudentTeam'
+import StudentTasks from './pages/student/StudentTasks'
 import StudentAssignments from './pages/student/StudentAssignments'
 import StudentSubmissions from './pages/student/StudentSubmissions'
 import StudentQuizResults from './pages/student/StudentQuizResults'
@@ -81,6 +83,7 @@ function TeacherShell({ user, onLogout, onUpdateUser }: { user: User; onLogout: 
   const pages: Record<TeacherPage, React.ReactNode> = {
     dashboard: <TeacherDashboard onNavigate={nav} />,
     groups: <TeacherGroups />,
+    tasks: <TeacherTasks />,
     attendance: <TeacherAttendance />,
     assessments: <TeacherAssessments onNavigate={nav} />,
     submissions: <TeacherSubmissions onNavigate={nav} />,
@@ -117,8 +120,9 @@ function StudentShell({ user, onLogout, onUpdateUser }: { user: User; onLogout: 
   const pages: Record<StudentPage, React.ReactNode> = {
     dashboard: <StudentDashboard onNavigate={nav} />,
     team: <StudentTeam />,
+    tasks: <StudentTasks currentUserId={Number(user.id)} />,
     assignments: <StudentAssignments onNavigate={nav} />,
-    submissions: <StudentSubmissions assessmentId={selectedAssessmentId} />,
+    submissions: <StudentSubmissions assessmentId={selectedAssessmentId} currentUserId={Number(user.id)} />,
     quizresults: <StudentQuizResults />,
     attendance: <StudentAttendance />,
     competency: <StudentCompetency />,

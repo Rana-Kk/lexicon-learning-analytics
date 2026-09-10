@@ -37,7 +37,6 @@ export default function TeacherAnalytics() {
   const [loadingGroup, setLoadingGroup] = useState(false)
   const [error, setError] = useState('')
 
-  // Load the teacher's own groups once.
   useEffect(() => {
     const load = async () => {
       try {
@@ -59,7 +58,6 @@ export default function TeacherAnalytics() {
     load()
   }, [])
 
-  // Load analytics for the selected group.
   useEffect(() => {
     if (!groupId) return
 
