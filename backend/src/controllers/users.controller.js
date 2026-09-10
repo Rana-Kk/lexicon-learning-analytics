@@ -377,14 +377,23 @@ export const importStudents = asyncHandler(async (req, res) => {
 
       const fullName =
         `${name}${surname ? ` ${surname}` : ''}`.trim();
+const providedPassword = String(row.password ?? '').trim();
 
-      const providedPassword =
-        String(row.password ?? '').trim();
+let temporaryPassword = providedPassword;
 
-      const temporaryPassword =
-        providedPassword ||
-        `${surname || name}123`.replace(/\s+/g, '');
+if (!temporaryPassword) {
+  const emailPrefix = email.split('@')[0];
 
+  let counter = 1;
+  temporaryPassword = emailPrefix;
+
+  while (temporaryPassword.length < 8) {
+    temporaryPassword += counter;
+    counter++;
+  }
+
+  temporaryPassword = temporaryPassword.slice(0, 8);
+}
       const password_hash =
         await bcrypt.hash(temporaryPassword, 10);
 
