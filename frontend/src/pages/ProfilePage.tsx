@@ -98,7 +98,7 @@ export default function ProfilePage({ user, onSave, onBack }: Props) {
     try {
       setErrors({})
 
-      await updateUser(user.id, {
+      const response = await updateUser(user.id, {
   name: name.trim(),
   email: email.trim(),
   bio: bio.trim(),
@@ -108,15 +108,13 @@ export default function ProfilePage({ user, onSave, onBack }: Props) {
     : {})
 })
 
+      // Backend'in döndürdüğü güncel kaydı kullanıyoruz; alanları burada
+      // elle yeniden inşa etmek (özellikle github_username) daha önce bir
+      // yazım hatasına (githubUsername vs github_username) yol açmıştı ve
+      // kaydedilen GitHub kullanıcı adı local state'e hiç yansımıyordu.
       const updatedUser = {
         ...user,
-        name: name.trim(),
-        email: email.trim(),
-        bio: bio.trim(),
-        avatar: avatarColor,
-        ...(user.role === 'student'
-          ? { githubUsername: githubUsername.trim().replace(/^@/, '') || undefined }
-          : {}),
+        ...response.data,
       } as User
 
       onSave(updatedUser)
