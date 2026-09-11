@@ -4,9 +4,10 @@ import { getTasks, getTaskById, createTask, updateTaskNote, closeTask, getTeams,
 interface TeamOption {
   id: number
   name: string
+  group_id: number
+  group_name?: string
   course_id: number
   course_name?: string
-  group_name?: string
 }
 
 interface TaskListItem {
@@ -54,7 +55,7 @@ export default function TeacherTasks() {
   const [notice, setNotice] = useState('')
 
   const [showCreate, setShowCreate] = useState(false)
-  const [newCourseId, setNewCourseId] = useState<number | null>(null)
+  const [newGroupId, setNewGroupId] = useState<number | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [newTeamIds, setNewTeamIds] = useState<number[]>([])
@@ -104,21 +105,23 @@ export default function TeacherTasks() {
     return () => { cancelled = true }
   }, [selectedId])
 
-  const teamsForNewCourse = useMemo(
-    () => teams.filter((t) => t.course_id === newCourseId),
-    [teams, newCourseId]
+  const teamsForNewGroup = useMemo(
+    () => teams.filter((t) => t.group_id === newGroupId),
+    [teams, newGroupId]
   )
 
-  const availableCourses = useMemo(() => {
-    const map = new Map<number, string>()
+  const availableGroups = useMemo(() => {
+    const map = new Map<number, { name: string; courseName?: string }>()
     for (const t of teams) {
-      if (!map.has(t.course_id)) map.set(t.course_id, t.course_name || `Course #${t.course_id}`)
+      if (!map.has(t.group_id)) {
+        map.set(t.group_id, { name: t.group_name || `Group #${t.group_id}`, courseName: t.course_name })
+      }
     }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+    return Array.from(map.entries()).map(([id, v]) => ({ id, name: v.name, courseName: v.courseName }))
   }, [teams])
 
   function resetCreateForm() {
-    setNewCourseId(null)
+    setNewGroupId(null)
     setNewTitle('')
     setNewDescription('')
     setNewTeamIds([])
@@ -130,14 +133,13 @@ export default function TeacherTasks() {
 
   async function handleCreate() {
     setError('')
-    if (!newCourseId || !newTitle.trim() || !newDescription.trim() || newTeamIds.length === 0) {
-      setError('Course, title, description, and at least one team are required.')
+    if (!newGroupId || !newTitle.trim() || !newDescription.trim() || newTeamIds.length === 0) {
+      setError('Group, title, description, and at least one team are required.')
       return
     }
     setCreating(true)
     try {
       const res = await createTask({
-        course_id: newCourseId,
         title: newTitle.trim(),
         description: newDescription.trim(),
         team_ids: newTeamIds,
@@ -260,15 +262,17 @@ const teamSummary = useMemo(() => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Course</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Group</label>
               <select
-                value={newCourseId ?? ''}
-                onChange={(e) => { setNewCourseId(Number(e.target.value) || null); setNewTeamIds([]) }}
+                value={newGroupId ?? ''}
+                onChange={(e) => { setNewGroupId(Number(e.target.value) || null); setNewTeamIds([]) }}
                 className="w-full px-3 py-2.5 rounded-lg text-sm"
                 style={{ border: '1px solid var(--border)', background: 'var(--muted)', outline: 'none' }}
               >
-                <option value="">Select a course…</option>
-                {availableCourses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="">Select a group…</option>
+                {availableGroups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}{g.courseName ? ` (${g.courseName})` : ''}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -294,13 +298,13 @@ const teamSummary = useMemo(() => {
           />
 
           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--muted-foreground)' }}>Teams</label>
-          {!newCourseId ? (
-            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Select a course first.</p>
-          ) : teamsForNewCourse.length === 0 ? (
-            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>No teams found for this course.</p>
+          {!newGroupId ? (
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Select a group first.</p>
+          ) : teamsForNewGroup.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>No teams found for this group.</p>
           ) : (
             <div className="flex flex-wrap gap-2 mb-1">
-              {teamsForNewCourse.map((t) => {
+              {teamsForNewGroup.map((t) => {
                 const active = newTeamIds.includes(t.id)
                 return (
                   <button
@@ -315,7 +319,7 @@ const teamSummary = useMemo(() => {
                       cursor: 'pointer',
                     }}
                   >
-                    {t.group_name ? `${t.group_name} · ` : ''}{t.name}
+                    {t.name}
                   </button>
                 )
               })}

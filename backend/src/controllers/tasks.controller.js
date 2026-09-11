@@ -5,20 +5,28 @@ import { teacherOwnsGroup } from '../utils/scope.js';
 
 export const getTasks = asyncHandler(async (req, res) => {
   const { role, sub: userId } = req.user;
-  const { course_id, status } = req.query;
+  const { course_id, group_id, status } = req.query;
 
   if (role === 'teacher' || role === 'admin') {
-    let q = `SELECT t.*, GROUP_CONCAT(tt.team_id) team_ids
-              FROM tasks t
-              LEFT JOIN task_teams tt ON tt.task_id=t.id
-              WHERE 1=1`;
+    const joins = [];
     const p = [];
+
+    if (group_id) {
+      joins.push('JOIN teams tm_filter ON tm_filter.id = tt.team_id');
+    }
+
+    let q = `SELECT t.*, GROUP_CONCAT(tt.team_id) team_ids
+             FROM tasks t
+             LEFT JOIN task_teams tt ON tt.task_id=t.id
+             ${joins.join(' ')}
+             WHERE 1=1`;
 
     if (role === 'teacher') {
       q += ' AND t.teacher_id=?';
       p.push(userId);
     }
     if (course_id) { q += ' AND t.course_id=?'; p.push(course_id); }
+    if (group_id) { q += ' AND tm_filter.group_id=?'; p.push(group_id); }
     if (status) { q += ' AND t.status=?'; p.push(status); }
 
     q += ' GROUP BY t.id ORDER BY t.created_at DESC';
@@ -94,22 +102,31 @@ const [summary] = await pool.query(
 
 export const createTask = asyncHandler(async (req, res) => {
   const teacherId = req.user.sub;
-  const { course_id, title, description, team_ids } = req.body;
+  const { title, description, team_ids } = req.body;
 
-  if (!course_id || !title || !description || !Array.isArray(team_ids) || !team_ids.length) {
-    throw new ApiError(400, 'course_id, title, description and at least one team_id are required');
+  if (!title || !description || !Array.isArray(team_ids) || !team_ids.length) {
+    throw new ApiError(400, 'title, description and at least one team_id are required');
   }
 
   const [teams] = await pool.query('SELECT id, group_id FROM teams WHERE id IN (?)', [team_ids]);
   if (teams.length !== team_ids.length) throw new ApiError(404, 'One or more teams not found');
 
-  if (req.user.role === 'teacher') {
-    for (const team of teams) {
-      if (!(await teacherOwnsGroup(teacherId, team.group_id))) {
-        throw new ApiError(403, 'You are not assigned to the group of one or more selected teams');
-      }
-    }
+  // A weekly task belongs to a single group, not a whole course — a course
+  // can have several groups (cohorts) running in parallel, and mixing teams
+  // from different groups into one task would leak visibility across them.
+  const groupIds = [...new Set(teams.map((t) => t.group_id))];
+  if (groupIds.length > 1) {
+    throw new ApiError(400, 'All selected teams must belong to the same group');
   }
+  const groupId = groupIds[0];
+
+  if (req.user.role === 'teacher' && !(await teacherOwnsGroup(teacherId, groupId))) {
+    throw new ApiError(403, 'You are not assigned to the group of the selected teams');
+  }
+
+  const [groupRows] = await pool.query('SELECT course_id FROM student_groups WHERE id = ?', [groupId]);
+  if (!groupRows.length) throw new ApiError(404, 'Group not found');
+  const course_id = groupRows[0].course_id;
 
   const conn = await pool.getConnection();
   try {
@@ -130,7 +147,7 @@ export const createTask = asyncHandler(async (req, res) => {
     await conn.commit();
 
     const [x] = await pool.query('SELECT * FROM tasks WHERE id=?', [taskId]);
-    res.status(201).json({ success: true, data: { ...x[0], team_ids } });
+    res.status(201).json({ success: true, data: { ...x[0], group_id: groupId, team_ids } });
   } catch (err) {
     await conn.rollback();
     throw err;

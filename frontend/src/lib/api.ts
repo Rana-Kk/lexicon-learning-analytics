@@ -952,7 +952,7 @@ export const saveStudentChecklist = (
 ========================= */
 
 export const getTasks = (
-  params?: { course_id?: number | string; status?: string }
+  params?: { course_id?: number | string; group_id?: number | string; status?: string }
 ) => {
   const q = new URLSearchParams()
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -965,7 +965,6 @@ export const getTaskById = (id: number | string) =>
   apiFetch(`/tasks/${id}`)
 
 export const createTask = (data: {
-  course_id: number | string
   title: string
   description: string
   team_ids: (number | string)[]
