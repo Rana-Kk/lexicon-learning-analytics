@@ -120,7 +120,7 @@ useEffect(() => {
         </nav>
         <div className="px-3 py-4 border-t" style={{ borderColor: '#1E293B' }}>
           <button onClick={onProfile} className="flex items-center gap-3 px-2 py-2 w-full rounded-lg text-left" style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: '#0891B2' }}>{user.name.charAt(0)}</div>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: user.avatar || 'var(--primary)' }}>{user.name.charAt(0)}</div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.name}</p>
               <p className="text-xs" style={{ color: '#64748B' }}>Teacher · Edit Profile</p>

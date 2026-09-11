@@ -3,7 +3,6 @@ import TeacherStudentDetail from './TeacherStudentDetail'
 import {
   getMyGroups,
   createGroup,
-  getCourses,
   getUsers,
   getGroupStudents,
   addStudentToGroup,
@@ -70,25 +69,19 @@ interface GroupAssessment {
    Create Group Modal
 ───────────────────────────────────────────────────────────────────── */
 
-function CreateGroupModal({ onClose, onCreate }: { onClose: () => void; onCreate: (g: Group) => void }) {
-  const [courses, setCourses] = useState<Course[]>([])
+function CreateGroupModal({ existingGroups, onClose, onCreate }: { existingGroups: Group[]; onClose: () => void; onCreate: (g: Group) => void }) {
+  const courses: Course[] = Array.from(
+    new Map(
+      existingGroups.map((g) => [g.course_id, { id: g.course_id, name: g.course_name || `Course #${g.course_id}` }])
+    ).values()
+  )
   const [name, setName] = useState('')
-  const [courseId, setCourseId] = useState<string>('')
+  const [courseId, setCourseId] = useState<string>(courses[0] ? String(courses[0].id) : '')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const [loadError, setLoadError] = useState('')
-
-  useEffect(() => {
-    getCourses()
-      .then((res) => {
-        const list: Course[] = res.data || []
-        setCourses(list)
-        if (list.length > 0) setCourseId(String(list[0].id))
-      })
-      .catch(() => setLoadError('Failed to load courses'))
-  }, [])
+  const loadError = courses.length === 0 ? "You aren't assigned to any course yet — ask an admin to add you to a group first." : ''
 
   async function submit() {
     const e: Record<string, string> = {}
@@ -1075,7 +1068,7 @@ const loadGroups = async () => {
       )}
 
       {showCreateGroup && (
-        <CreateGroupModal onClose={() => setShowCreateGroup(false)} onCreate={handleCreateGroup} />
+        <CreateGroupModal existingGroups={groups} onClose={() => setShowCreateGroup(false)} onCreate={handleCreateGroup} />
       )}
     </div>
   )

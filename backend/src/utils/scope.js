@@ -1,9 +1,5 @@
 import { pool } from '../config/db.js';
 
-// Shared helpers for restricting a teacher to only the groups/courses they
-// are actually assigned to (via the group_teachers table). Used by every
-// controller that lets a teacher look up data for "a student" or "a group"
-// so a teacher can never read another teacher's class by guessing an id.
 
 /** Group ids the given teacher is assigned to. */
 export async function getTeacherGroupIds(teacherId) {
@@ -20,6 +16,20 @@ export async function teacherOwnsGroup(teacherId, groupId) {
   const [rows] = await pool.query(
     'SELECT 1 FROM group_teachers WHERE teacher_id = ? AND group_id = ? LIMIT 1',
     [teacherId, groupId]
+  );
+  return rows.length > 0;
+}
+
+/** True if `courseId` is one of the courses the teacher already has a group in. */
+export async function teacherHasCourseAccess(teacherId, courseId) {
+  if (!courseId) return false;
+  const [rows] = await pool.query(
+    `SELECT 1
+       FROM group_teachers gt
+       JOIN student_groups sg ON sg.id = gt.group_id
+      WHERE gt.teacher_id = ? AND sg.course_id = ?
+      LIMIT 1`,
+    [teacherId, courseId]
   );
   return rows.length > 0;
 }

@@ -550,6 +550,10 @@ describe('groups.controller', () => {
         .mockResolvedValueOnce([
           [sampleCourse],
         ])
+        // teacher course access check (teacher already has a group in this course)
+        .mockResolvedValueOnce([
+          [{ 1: 1 }],
+        ])
         // insert group
         .mockResolvedValueOnce([
           {
@@ -605,6 +609,34 @@ describe('groups.controller', () => {
         ),
         [10, 2]
       )
+    })
+
+    it('rejects a teacher creating a group in a course they have no existing scope in', async () => {
+      mockQuery
+        // course check
+        .mockResolvedValueOnce([
+          [sampleCourse],
+        ])
+        // teacher course access check (no existing group in this course)
+        .mockResolvedValueOnce([
+          [],
+        ])
+
+      const req = createReq({
+        body: {
+          course_id: 1,
+          name: 'New Group In Foreign Course',
+        },
+        user: teacherUser,
+      })
+
+      const res = createRes()
+
+      await expect(
+        controller.createGroup(req, res)
+      ).rejects.toMatchObject({
+        statusCode: 403,
+      })
     })
 
     it('creates a group as admin and assigns one teacher', async () => {

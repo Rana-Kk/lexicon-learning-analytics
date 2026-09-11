@@ -156,7 +156,6 @@ describe('TeacherGroups - create group modal', () => {
     const user = userEvent.setup()
 
     mockGroupsList([])
-    mocked.getCourses.mockResolvedValue({ data: [] } as any)
 
     render(<TeacherGroups />)
 
@@ -179,11 +178,10 @@ describe('TeacherGroups - create group modal', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows a load error when courses fail to load', async () => {
+  it('shows a message when the teacher has no course scope yet', async () => {
     const user = userEvent.setup()
 
     mockGroupsList([])
-    mocked.getCourses.mockRejectedValue(new Error('boom'))
 
     render(<TeacherGroups />)
 
@@ -194,28 +192,24 @@ describe('TeacherGroups - create group modal', () => {
     )
 
     expect(
-      await screen.findByText('Failed to load courses')
+      await screen.findByText(/You aren't assigned to any course yet/i)
     ).toBeInTheDocument()
   })
 
-  it('preselects the first course once courses load', async () => {
+  it('preselects the course from the teacher\'s existing groups', async () => {
     const user = userEvent.setup()
 
-    mockGroupsList([])
-
-    mocked.getCourses.mockResolvedValue({
-      data: [{ id: 5, name: 'React Course' }],
-    } as any)
+    mockGroupsList([GROUP_A])
 
     render(<TeacherGroups />)
 
-    await screen.findByText(/No groups/i)
+    await screen.findByText('Group A')
 
     await user.click(
       screen.getByRole('button', { name: /Create Group/i })
     )
 
-    const select = await screen.findByDisplayValue('React Course')
+    const select = await screen.findByDisplayValue('Full Stack')
 
     expect(select).toBeInTheDocument()
   })
@@ -223,18 +217,14 @@ describe('TeacherGroups - create group modal', () => {
   it('creates a group and shows its detail view on success', async () => {
     const user = userEvent.setup()
 
-    mockGroupsList([])
-
-    mocked.getCourses.mockResolvedValue({
-      data: [{ id: 5, name: 'React Course' }],
-    } as any)
+    mockGroupsList([GROUP_A])
 
     mocked.createGroup.mockResolvedValue({
       data: {
         id: 99,
         name: 'New Group',
-        course_id: 5,
-        course_name: 'React Course',
+        course_id: 10,
+        course_name: 'Full Stack',
         student_count: 0,
       },
     } as any)
@@ -245,7 +235,7 @@ describe('TeacherGroups - create group modal', () => {
 
     render(<TeacherGroups />)
 
-    await screen.findByText(/No groups/i)
+    await screen.findByText('Group A')
 
     await user.click(
       screen.getByRole('button', { name: /Create Group/i })
@@ -261,7 +251,7 @@ describe('TeacherGroups - create group modal', () => {
     )
 
     expect(mocked.createGroup).toHaveBeenCalledWith({
-      course_id: 5,
+      course_id: 10,
       name: 'New Group',
       start_date: null,
       end_date: null,
@@ -273,11 +263,7 @@ describe('TeacherGroups - create group modal', () => {
   it('shows the API error message when group creation fails', async () => {
     const user = userEvent.setup()
 
-    mockGroupsList([])
-
-    mocked.getCourses.mockResolvedValue({
-      data: [{ id: 5, name: 'React Course' }],
-    } as any)
+    mockGroupsList([GROUP_A])
 
     mocked.createGroup.mockRejectedValue(
       new api.ApiError(409, 'Group already exists')
@@ -285,7 +271,7 @@ describe('TeacherGroups - create group modal', () => {
 
     render(<TeacherGroups />)
 
-    await screen.findByText(/No groups/i)
+    await screen.findByText('Group A')
 
     await user.click(
       screen.getByRole('button', { name: /Create Group/i })
@@ -309,7 +295,6 @@ describe('TeacherGroups - create group modal', () => {
     const user = userEvent.setup()
 
     mockGroupsList([])
-    mocked.getCourses.mockResolvedValue({ data: [] } as any)
 
     render(<TeacherGroups />)
 
@@ -1114,4 +1099,3 @@ describe('TeacherGroups - navigation', () => {
     ).toBeInTheDocument()
   })
 })
-

@@ -1,6 +1,7 @@
 import { pool } from '../config/db.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { teacherHasCourseAccess } from '../utils/scope.js';
 
 // Helper function to auto-format and sanitize date strings to YYYY-MM-DD
 function normalizeDate(dateStr) {
@@ -185,6 +186,16 @@ export const createGroup = asyncHandler(async (req, res) => {
   const [courseCheck] = await pool.query('SELECT id FROM courses WHERE id = ?', [course_id]);
   if (courseCheck.length === 0) {
     throw new ApiError(404, 'Course not found');
+  }
+
+  if (req.user.role === 'teacher') {
+    const hasAccess = await teacherHasCourseAccess(created_by, course_id);
+    if (!hasAccess) {
+      throw new ApiError(
+        403,
+        'You are not assigned to this course. Ask an admin to add you to a group in this course first.'
+      );
+    }
   }
 
   const cleanStartDate = normalizeDate(start_date);
