@@ -289,7 +289,7 @@ const overallProgress = useMemo(() => {
             fontFamily: 'Outfit, sans-serif',
           }}
         >
-          Good morning, {student?.name || 'Student'}
+          Hi, {student?.name || 'Student'}
         </h1>
 
         <p
