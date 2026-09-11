@@ -254,7 +254,8 @@ export const createUser = asyncHandler(async (req, res) => {
     password,
     role,
     github_username,
-    group_id
+    group_id,
+    group_ids
   } = req.body;
 
   if (!name || !email || !password || !role) {
@@ -307,11 +308,13 @@ export const createUser = asyncHandler(async (req, res) => {
     ]
   );
 
-  if (role === 'student' && group_id) {
-    await enrollInGroup(
-      result.insertId,
-      group_id
-    );
+  if (role === 'student') {
+    if (Array.isArray(group_ids)) {
+      await syncStudentGroups(result.insertId, group_ids);
+    } else if (group_id) {
+      // Backward-compatible fallback for callers still sending a single group_id
+      await enrollInGroup(result.insertId, group_id);
+    }
   }
 
   const rows = await getUserRows(
