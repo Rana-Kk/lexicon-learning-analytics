@@ -8,6 +8,17 @@ interface StatCardProps {
 }
 
 export default function StatCard({ label, value, sub, trend, icon, accent }: StatCardProps) {
+  // Sayısal/kısa değerler (ör. "90%", "2") büyük punto ile iyi görünür,
+  // ama konu adı gibi uzun metin değerleri (ör. "Package Management")
+  // aynı puntoyla dar karta sığmayıp taşıyordu. Uzunluğa göre ölçekliyoruz.
+  const valueText = String(value)
+  const valueSizeClass =
+    valueText.length > 14
+      ? 'text-lg'
+      : valueText.length > 6
+        ? 'text-xl'
+        : 'text-3xl'
+
   return (
     <div
       className="rounded-lg p-5"
@@ -25,7 +36,10 @@ export default function StatCard({ label, value, sub, trend, icon, accent }: Sta
           >
             {label}
           </p>
-          <p className="text-3xl font-semibold leading-none" style={{ fontFamily: 'Outfit, sans-serif' }}>
+          <p
+            className={`${valueSizeClass} font-semibold leading-tight break-words`}
+            style={{ fontFamily: 'Outfit, sans-serif' }}
+          >
             {value}
           </p>
           {sub && (

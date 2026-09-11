@@ -226,14 +226,22 @@ export default function StudentCompetency() {
               </h2>
 
               <ResponsiveContainer width="100%" height={360}>
-                <RadarChart data={competencies}>
+                <RadarChart
+                  data={competencies}
+                  margin={{ top: 30, right: 60, bottom: 30, left: 60 }}
+                >
                   <PolarGrid />
 
-                  <PolarAngleAxis dataKey="name" />
+                  <PolarAngleAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11 }}
+                  />
 
                   <PolarRadiusAxis
                     domain={[0, 100]}
                     tickCount={6}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
                   />
 
                   <Tooltip />

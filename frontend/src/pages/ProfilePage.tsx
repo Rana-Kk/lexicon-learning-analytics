@@ -218,18 +218,6 @@ export default function ProfilePage({ user, onSave, onBack }: Props) {
   return (
     <div className="p-6 max-w-2xl mx-auto">
 
-      {user.role === 'student' && (
-        <div className="rounded-xl p-6 mb-5" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-          <h2 className="text-sm font-semibold mb-2">GitHub Profile</h2>
-          <p className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>Add your GitHub username so teachers can identify your profile.</p>
-          <div className="flex gap-2">
-            <span className="px-3 py-2.5 rounded-lg text-sm" style={{ background: 'var(--muted)', color: 'var(--muted-foreground)' }}>github.com/</span>
-            <input value={githubUsername} onChange={e => setGithubUsername(e.target.value)} placeholder="username" className="flex-1 px-3 py-2.5 rounded-lg text-sm" style={{ border: '1px solid var(--border)', background: 'var(--muted)', outline: 'none' }} />
-          </div>
-        </div>
-      )}
-
-
       {/* Back */}
       <button
         onClick={onBack}
@@ -525,6 +513,43 @@ export default function ProfilePage({ user, onSave, onBack }: Props) {
               }}
             />
           </div>
+
+          {/* GitHub username (students only) */}
+          {user.role === 'student' && (
+            <div>
+              <label
+                className="block text-xs font-medium mb-1"
+                style={{
+                  color: 'var(--muted-foreground)',
+                }}
+              >
+                GitHub Username
+              </label>
+
+              <p
+                className="text-xs mb-1.5"
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                So teachers can identify your profile. Remember to hit "Save Changes" below.
+              </p>
+
+              <div className="flex gap-2">
+                <span
+                  className="px-3 py-2.5 rounded-lg text-sm"
+                  style={{ background: 'var(--muted)', color: 'var(--muted-foreground)' }}
+                >
+                  github.com/
+                </span>
+                <input
+                  value={githubUsername}
+                  onChange={(e) => setGithubUsername(e.target.value)}
+                  placeholder="username"
+                  className="flex-1 px-3 py-2.5 rounded-lg text-sm"
+                  style={{ border: '1px solid var(--border)', background: 'var(--muted)', outline: 'none' }}
+                />
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

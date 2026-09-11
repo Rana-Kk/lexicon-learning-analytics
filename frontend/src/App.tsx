@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { User } from './types'
-import { logout as clearSession } from './lib/api'
+import { logout as clearSession, getMyTeam } from './lib/api'
 
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
@@ -108,6 +108,17 @@ function StudentShell({ user, onLogout, onUpdateUser }: { user: User; onLogout: 
   const [page, setPage] = useState<StudentPage>('dashboard')
   const [showProfile, setShowProfile] = useState(false)
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<number | undefined>()
+  const [groupName, setGroupName] = useState<string | undefined>()
+
+  useEffect(() => {
+    getMyTeam()
+      .then((response) => {
+        setGroupName(response.data?.[0]?.group_name)
+      })
+      .catch((err) => {
+        console.error('Could not load group name:', err)
+      })
+  }, [])
 
   const nav = (p: StudentPage, assessmentId?: number) => {
     setShowProfile(false)
@@ -130,7 +141,7 @@ function StudentShell({ user, onLogout, onUpdateUser }: { user: User; onLogout: 
     certificates: <StudentCertificates />,
   }
   return (
-    <StudentLayout user={user} currentPage={page} onNavigate={nav} onLogout={onLogout} onProfile={() => setShowProfile(true)}>
+    <StudentLayout user={user} currentPage={page} groupName={groupName} onNavigate={nav} onLogout={onLogout} onProfile={() => setShowProfile(true)}>
       {showProfile
         ? <ProfilePage user={user} onSave={(u) => { onUpdateUser(u); setShowProfile(false) }} onBack={() => setShowProfile(false)} />
         : pages[page]}
