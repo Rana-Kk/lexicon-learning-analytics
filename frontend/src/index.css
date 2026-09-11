@@ -230,3 +230,6 @@ h1, h2, h3, h4, h5, h6 {
   .lexicon-admin-contact-card { padding-right: 16px; }
   .lexicon-copy-email { position: static; transform: none; align-self: flex-start; margin-top: 4px; }
 }
+.lexicon-nav-scroll::-webkit-scrollbar {
+  display: none;
+}

@@ -50,58 +50,62 @@ export default function StudentLayout({
       style={{ background: 'var(--background)' }}
     >
       <header
-        className="sticky top-0 z-10 flex items-center justify-between px-6"
+        className="sticky top-0 z-10 flex items-center px-4"
         style={{
           background: 'var(--card)',
           borderBottom: '1px solid var(--border)',
           height: '56px',
         }}
       >
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="lexicon-visual-content">
-            <img 
-      src="/lexicon-logo.png" 
-      alt="Lexicon" 
-      className="object-contain"
-      style={{ 
-        height: '32px',      
-        width: 'auto',        
-        maxWidth: '100%',    
-        minWidth: '50px'     
-      }}
-    />
-          </div>
-          </div>
-
-          <nav className="flex items-center gap-0.5">
-            {NAV_ITEMS.map((item) => {
-              const active = currentPage === item.id
-
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onNavigate(item.id)}
-                  className="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap"
-                  style={{
-                    background: active
-                      ? 'var(--secondary)'
-                      : 'transparent',
-                    color: active
-                      ? 'var(--foreground)'
-                      : 'var(--muted-foreground)',
-                    border: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {item.label}
-                </button>
-              )
-            })}
-          </nav>
+        {/* Logo */}
+        <div className="flex items-center shrink-0 mr-3">
+          <img
+            src="/lexicon-logo.png"
+            alt="Lexicon"
+            className="object-contain"
+            style={{
+              height: '28px',
+              width: 'auto',
+              minWidth: '40px',
+            }}
+          />
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Navigation */}
+        <nav
+          className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto lexicon-nav-scroll"
+          style={{
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
+        >
+          {NAV_ITEMS.map((item) => {
+            const active = currentPage === item.id
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => onNavigate(item.id)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
+                style={{
+                  background: active
+                    ? 'var(--secondary)'
+                    : 'transparent',
+                  color: active
+                    ? 'var(--foreground)'
+                    : 'var(--muted-foreground)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {item.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* User Section */}
+        <div className="flex items-center gap-3 shrink-0 ml-3">
           <div className="text-right hidden sm:block whitespace-nowrap">
             <p className="text-sm font-medium leading-tight truncate max-w-[220px]">
               {user.name}
@@ -118,7 +122,7 @@ export default function StudentLayout({
           {/* User Avatar */}
           <button
             onClick={onProfile}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
             style={{
               background: user.avatar || 'var(--primary)',
               border: 'none',
@@ -131,7 +135,7 @@ export default function StudentLayout({
 
           <button
             onClick={onLogout}
-            className="text-xs py-1.5 px-3 rounded-md"
+            className="text-xs py-1.5 px-3 rounded-md whitespace-nowrap shrink-0"
             style={{
               color: 'var(--muted-foreground)',
               border: '1px solid var(--border)',
@@ -144,7 +148,7 @@ export default function StudentLayout({
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
         {children}
       </main>
     </div>
