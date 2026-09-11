@@ -102,13 +102,13 @@ export default function StudentLayout({
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-medium leading-tight">
+          <div className="text-right hidden sm:block whitespace-nowrap">
+            <p className="text-sm font-medium leading-tight truncate max-w-[220px]">
               {user.name}
             </p>
 
             <p
-              className="text-xs"
+              className="text-xs truncate max-w-[220px]"
               style={{ color: 'var(--muted-foreground)' }}
             >
               {groupName || '—'}

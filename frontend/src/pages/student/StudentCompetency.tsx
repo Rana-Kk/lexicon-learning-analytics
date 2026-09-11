@@ -25,6 +25,61 @@ type Competency = {
   trend: 'improving' | 'declining' | 'stable'
 }
 
+// Yetkinlik adları veritabanından geldiği için uzunlukları öngörülemiyor
+// ("Object-Oriented Programming" gibi). Tek satırda göstermeye çalışmak
+// kartın kenarından taşmasına neden oluyordu; bu yüzden kelime sınırında
+// en fazla ~14 karakterlik satırlara bölüyoruz.
+function wrapLabel(label: string, maxCharsPerLine = 14): string[] {
+  const words = label.split(' ')
+  const lines: string[] = []
+  let current = ''
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word
+
+    if (candidate.length > maxCharsPerLine && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = candidate
+    }
+  }
+
+  if (current) lines.push(current)
+
+  return lines.slice(0, 2)
+}
+
+function WrappedAngleAxisTick(props: any) {
+  const { x, y, textAnchor, payload } = props
+  const lines = wrapLabel(String(payload.value))
+  const lineHeight = 12
+
+  // Birden fazla satır varsa, tick noktasının etrafında dikey olarak
+  // ortalamak için başlangıç ofsetini hesaplıyoruz.
+  const startDy = -((lines.length - 1) * lineHeight) / 2
+
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor={textAnchor}
+      fontSize={11}
+      fill="#64748B"
+    >
+      {lines.map((line, i) => (
+        <tspan
+          key={i}
+          x={x}
+          dy={i === 0 ? startDy : lineHeight}
+        >
+          {line}
+        </tspan>
+      ))}
+    </text>
+  )
+}
+
 export default function StudentCompetency() {
   const [competencies, setCompetencies] = useState<Competency[]>([])
   const [loading, setLoading] = useState(true)
@@ -234,7 +289,7 @@ export default function StudentCompetency() {
 
                   <PolarAngleAxis
                     dataKey="name"
-                    tick={{ fontSize: 11 }}
+                    tick={<WrappedAngleAxisTick />}
                   />
 
                   <PolarRadiusAxis
