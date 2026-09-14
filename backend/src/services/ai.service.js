@@ -577,6 +577,46 @@ substitute for actually attempting the assigned task. Do not let
 a well-organized unrelated repository "average out" to a moderate
 or high score.
 
+==================================================
+SCOPE / LEVEL COMPLETENESS CHECK — ALSO DO THIS BEFORE SCORING
+==================================================
+
+Some assignments (like this one may be) describe multiple difficulty
+levels, tiers, or phases, where each level adds more required
+functionality on top of the previous one, and the student is meant
+to implement as many levels as they completed.
+
+First decide: does the assignment description above actually define
+multiple such levels/tiers/phases? If not, ignore this whole section
+and set "highest_level_reached" to null.
+
+If it DOES define multiple levels:
+
+- Read the repository's code (and README, if present) to determine
+  the HIGHEST level whose functionality is genuinely, completely
+  implemented. Set "highest_level_reached" to that level's number
+  or name (e.g. "1", "Level 2"), and "total_levels_in_assignment"
+  to how many levels the assignment defines.
+- Bugs or missing polish WITHIN an attempted level are a normal,
+  minor code-quality deduction. Missing WHOLE LEVELS is not a minor
+  deduction — it means a large fraction of the assignment's required
+  scope was never attempted at all.
+- The rubric score MUST primarily reflect how much of the
+  assignment's total required scope was completed, not merely
+  whether the completed subset runs cleanly. A flawless, bug-free
+  implementation of only the lowest level of a 4-level assignment
+  has still completed roughly a quarter of what was asked, and must
+  score LOW overall (well below half of each relevant criterion's
+  max_score) — NOT a high score just because what exists has no bugs.
+- Do not let "the code that exists is clean" compensate for "most of
+  the required levels are simply missing." Explain in the rationale
+  which level was reached and how much of the assignment that
+  represents.
+- This is independent of, and in addition to, the PROJECT RELEVANCE
+  CHECK above — a submission can be a correct attempt at the right
+  assignment (meets_description: "yes") while still only completing
+  a small fraction of its required scope.
+
 ${
   hasChecklist
     ? `==================================================
@@ -863,6 +903,8 @@ Return ONLY valid JSON.
 {
   "total_score": 0,
   "meets_description": "",
+  "highest_level_reached": null,
+  "total_levels_in_assignment": null,
   "strengths": "",
   "areas_for_improvement": "",
   "recommendations": "",
@@ -921,7 +963,11 @@ Before returning JSON, verify:
 - No absent file was described as containing code.
 - No unsupported implementation claim was made.
 - No unsupported test claim was made.
-- Competency suggestions use valid competency IDs.${
+- Competency suggestions use valid competency IDs.
+- If the assignment defines multiple levels/tiers, highest_level_reached
+  and total_levels_in_assignment are filled in, and the score reflects
+  how much of the total required scope was actually completed — not
+  just the cleanliness of the level(s) that were attempted.${
   hasChecklist
     ? '\n- Every checklist criterion appears exactly once, with only the matching value field filled in.'
     : ''
@@ -1152,6 +1198,54 @@ Before returning JSON, verify:
           sum + Number(cs.score),
         0
       );
+
+    // ---------------------------------------------------------
+    // 7c. Flag (but don't auto-clamp) suspicious level-completeness
+    // scoring.
+    //
+    // Unlike meets_description ("no" -> near-zero), a fair numeric
+    // clamp for "only reached level 2 of 4" isn't well-defined in
+    // general (levels aren't necessarily worth equal points). So
+    // instead of silently rewriting the score, we log loudly when
+    // the reported level gap looks inconsistent with a high score,
+    // so a teacher reviewing this submission can catch it — the
+    // same way the raw Gemini response is already logged above.
+    // ---------------------------------------------------------
+
+    const highestLevel = Number(
+      String(aiResult.highest_level_reached ?? '').match(/\d+/)?.[0]
+    );
+    const totalLevels = Number(
+      String(aiResult.total_levels_in_assignment ?? '').match(/\d+/)?.[0]
+    );
+
+    if (
+      Number.isFinite(highestLevel) &&
+      Number.isFinite(totalLevels) &&
+      totalLevels > 0 &&
+      highestLevel < totalLevels
+    ) {
+      const rubricMax = criteria.reduce(
+        (sum, c) => sum + Number(c.max_score),
+        0
+      );
+      const scorePct = rubricMax > 0 ? aiResult.total_score / rubricMax : 0;
+      const levelPct = highestLevel / totalLevels;
+
+      // Generous buffer (0.25) since a lower-level submission can
+      // still legitimately execute what it does implement well —
+      // this only flags a genuinely large, suspicious mismatch.
+      if (scorePct > levelPct + 0.25) {
+        console.warn(
+          `[AI Service] Submission ${submissionId}: only reached level ` +
+            `${highestLevel}/${totalLevels} of the assignment but scored ` +
+            `${Math.round(scorePct * 100)}% of the rubric max (${
+              aiResult.total_score
+            }/${rubricMax}). This may be over-scored relative to the ` +
+            `amount of required scope actually completed — please review.`
+        );
+      }
+    }
 
 
     if (hasChecklist) {
