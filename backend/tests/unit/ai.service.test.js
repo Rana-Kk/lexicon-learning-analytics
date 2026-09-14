@@ -1,1732 +1,1599 @@
-import { GoogleGenAI } from '@google/genai';
-import { pool } from '../config/db.js';
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+} from 'vitest'
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+// ============================================================
+// MOCK FUNCTIONS
+// ============================================================
 
-// GitHub API requests.
-const GITHUB_HEADERS = process.env.GITHUB_TOKEN
-  ? {
-      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github+json',
-    }
-  : {
-      Accept: 'application/vnd.github+json',
-    };
+const mockGenerateContent = vi.fn()
 
-// Directories that should never be sent to Gemini.
-const SKIP_DIR_SEGMENTS = [
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  '.next',
-  'venv',
-  '.venv',
-  '__pycache__',
-  'vendor',
-  'coverage',
-  '.idea',
-  '.vscode',
-];
+const mockQuery = vi.fn()
+const mockPoolQuery = vi.fn()
+const mockGetConnection = vi.fn()
 
-// File types that can contain useful assignment evidence.
-const SOURCE_EXTENSIONS = [
-  '.py',
-  '.js',
-  '.jsx',
-  '.ts',
-  '.tsx',
-  '.java',
-  '.rb',
-  '.go',
-  '.php',
-  '.c',
-  '.cpp',
-  '.h',
-  '.hpp',
-  '.cs',
-  '.rs',
-  '.sql',
-  '.html',
-  '.css',
-  '.md',
-  '.json',
-  '.yml',
-  '.yaml',
-  '.txt',
-];
+const mockBeginTransaction = vi.fn()
+const mockCommit = vi.fn()
+const mockRollback = vi.fn()
+const mockRelease = vi.fn()
 
-const MAX_FILES = 50;
-const MAX_TOTAL_CHARS = 120000;
-const MAX_FILE_CHARS = 15000;
+// ============================================================
+// GEMINI MOCK
+// ============================================================
 
-function isRelevantPath(path) {
-  const lower = path.toLowerCase();
-
-  if (
-    SKIP_DIR_SEGMENTS.some(
-      (seg) =>
-        lower.includes(`/${seg}/`) ||
-        lower.startsWith(`${seg}/`)
-    )
-  ) {
-    return false;
-  }
-
-  return SOURCE_EXTENSIONS.some((ext) =>
-    lower.endsWith(ext)
-  );
-}
-
-function filePriority(path) {
-  const lower = path.toLowerCase();
-  const base = lower.split('/').pop();
-
-  if (
-    base.startsWith('test_') ||
-    base.endsWith('_test.py') ||
-    base.endsWith('_test.js') ||
-    base.endsWith('_test.ts') ||
-    base.endsWith('.test.js') ||
-    base.endsWith('.test.ts') ||
-    base.endsWith('.test.jsx') ||
-    base.endsWith('.test.tsx') ||
-    base.endsWith('.spec.js') ||
-    base.endsWith('.spec.ts') ||
-    lower.includes('/tests/') ||
-    lower.includes('/__tests__/') ||
-    lower.includes('/spec/')
-  ) {
-    return 1000;
-  }
-
-  if (
-    base === 'readme.md' ||
-    base === 'readme.txt'
-  ) {
-    return 950;
-  }
-
-  if (
-    [
-      'package.json',
-      'requirements.txt',
-      'pyproject.toml',
-      'pom.xml',
-      'build.gradle',
-      'composer.json',
-      'cargo.toml',
-    ].includes(base)
-  ) {
-    return 900;
-  }
-
-  if (
-    [
-      'main.py',
-      'app.py',
-      'index.py',
-      'main.js',
-      'app.js',
-      'index.js',
-      'server.js',
-      'index.ts',
-      'main.ts',
-      'app.ts',
-    ].includes(base)
-  ) {
-    return 850;
-  }
-
-  if (
-    [
-      '.py',
-      '.js',
-      '.jsx',
-      '.ts',
-      '.tsx',
-      '.java',
-      '.cs',
-      '.go',
-      '.rb',
-      '.php',
-    ].some((ext) => lower.endsWith(ext))
-  ) {
-    return 700;
-  }
-
-  if (lower.endsWith('.sql')) return 650;
-  if (lower.endsWith('.md')) return 500;
-  if (lower.endsWith('.json')) return 450;
-
-  return 300;
-}
-
-function selectRelevantPaths(tree) {
-  return tree
-    .map((f) => f.path)
-    .filter(isRelevantPath)
-    .sort((a, b) => {
-      const priorityDiff =
-        filePriority(b) - filePriority(a);
-
-      if (priorityDiff !== 0) {
-        return priorityDiff;
+vi.mock('@google/genai', () => ({
+  GoogleGenAI: class GoogleGenAI {
+    constructor() {
+      this.models = {
+        generateContent: mockGenerateContent,
       }
+    }
+  },
+}))
 
-      return a.localeCompare(b);
-    })
-    .slice(0, MAX_FILES);
+// ============================================================
+// DATABASE MOCK
+// ============================================================
+
+vi.mock('../../src/config/db.js', () => ({
+  pool: {
+    getConnection: mockGetConnection,
+    query: mockPoolQuery,
+  },
+}))
+
+// ============================================================
+// MOCK CONNECTION
+// ============================================================
+
+const mockConnection = {
+  query: mockQuery,
+  beginTransaction: mockBeginTransaction,
+  commit: mockCommit,
+  rollback: mockRollback,
+  release: mockRelease,
 }
 
-async function resolveRef(owner, repo, requestedRef) {
-  if (
-    requestedRef &&
-    requestedRef !== 'HEAD'
-  ) {
-    return requestedRef;
-  }
+// ============================================================
+// IMPORT SERVICE
+// ============================================================
 
-  const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}`,
+const {
+  analyzeSubmissionWithGemini,
+} = await import('../../src/services/ai.service.js')
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function createSuccessfulAiResponse() {
+  return {
+    total_score: 15,
+
+    meets_description: 'yes',
+
+    strengths:
+      'Good implementation.',
+
+    areas_for_improvement:
+      'More tests could be added.',
+
+    recommendations:
+      'Improve edge case handling.',
+
+    suggested_next_steps:
+      'Add more automated tests.',
+
+    competency_suggestions: [
+      {
+        competency_id: 1,
+        suggested_score: 80,
+        reason:
+          'The implementation demonstrates programming skills.',
+      },
+    ],
+
+    criteria_scores: [
+      {
+        criteria_id: 1,
+        score: 10,
+        rationale:
+          'The implementation satisfies the first criterion.',
+      },
+      {
+        criteria_id: 2,
+        score: 5,
+        rationale:
+          'The implementation partially satisfies the second criterion.',
+      },
+    ],
+
+    checklist_results: [],
+  }
+}
+
+function createChecklistAiResponse() {
+  const response =
+    createSuccessfulAiResponse()
+
+  response.checklist_results = [
     {
-      headers: GITHUB_HEADERS,
-    }
-  );
-
-  if (!res.ok) {
-    throw new Error(
-      `Could not resolve repository (status ${res.status})`
-    );
-  }
-
-  const data = await res.json();
-
-  return data.default_branch || 'main';
-}
-
-async function fetchRepoTree(owner, repo, ref) {
-  const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`,
+      checklist_criterion_id: 101,
+      yes_no_value: true,
+      score_value: null,
+      text_value: null,
+      feedback:
+        'The required feature is present.',
+    },
     {
-      headers: GITHUB_HEADERS,
-    }
-  );
+      checklist_criterion_id: 102,
+      yes_no_value: null,
+      score_value: 8,
+      text_value: null,
+      feedback:
+        'The implementation demonstrates most requirements.',
+    },
+    {
+      checklist_criterion_id: 103,
+      yes_no_value: null,
+      score_value: null,
+      text_value: 'Completed',
+      feedback:
+        'The repository contains the required work.',
+    },
+  ]
 
-  if (!res.ok) {
-    throw new Error(
-      `Could not fetch repository tree (status ${res.status})`
-    );
-  }
-
-  const data = await res.json();
-
-  return (data.tree || []).filter(
-    (f) => f.type === 'blob'
-  );
+  return response
 }
 
-async function fetchFileContents(
-  owner,
-  repo,
-  ref,
-  paths
-) {
-  const sections = [];
-  let totalChars = 0;
+// ============================================================
+// DATABASE MOCK SETUP
+// ============================================================
 
-  for (const path of paths) {
-    if (totalChars >= MAX_TOTAL_CHARS) {
-      break;
-    }
+function setupDatabaseMocks({
+  hasChecklist = false,
+  submissionExists = true,
+  hasRubric = true,
+  failInsertEvaluation = false,
+} = {}) {
+  mockGetConnection.mockResolvedValue(
+    mockConnection
+  )
 
-    try {
-      const res = await fetch(
-        `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`,
-        {
-          headers: GITHUB_HEADERS,
+  mockQuery.mockImplementation(
+    async (sql) => {
+
+      // ======================================================
+      // SUBMISSION + ASSESSMENT
+      // ======================================================
+
+      if (
+        sql.includes(
+          'FROM assessment_submissions s'
+        )
+      ) {
+        if (!submissionExists) {
+          return [[]]
         }
-      );
 
-      if (!res.ok) {
-        console.warn(
-          `[AI Service] Could not fetch file ${path}: ${res.status}`
-        );
-        continue;
+        return [[
+          {
+            id: 100,
+            assessment_id: 10,
+            student_id: 50,
+
+            assessment_title:
+              'Python Assignment',
+
+            assessment_desc:
+              'Build a Python application.',
+          },
+        ]]
       }
 
-      let content = await res.text();
-
-      if (content.length > MAX_FILE_CHARS) {
-        content =
-          content.slice(0, MAX_FILE_CHARS) +
-          '\n...[truncated]';
-      }
-
-      sections.push(
-        `----- FILE: ${path} -----\n${content}`
-      );
-
-      totalChars += content.length;
-    } catch (error) {
-      console.warn(
-        `[AI Service] Failed to fetch ${path}:`,
-        error.message
-      );
-    }
-  }
-
-  return sections.join('\n\n');
-}
-
-export const analyzeSubmissionWithGemini = async (
-  submissionId,
-  owner,
-  repo,
-  commitSha,
-  submissionIds
-) => {
-  const targetSubmissionIds =
-    Array.isArray(submissionIds) &&
-    submissionIds.length
-      ? [...new Set(submissionIds.map(Number))]
-      : [Number(submissionId)];
-
-  const connection =
-    await pool.getConnection();
-
-  let transactionStarted = false;
-
-  try {
-    console.log(
-      `[AI Service] Starting Gemini analysis for submission ${submissionId} (${owner}/${repo})...`
-    );
-
-    // ---------------------------------------------------------
-    // 1. Get submission + assessment
-    // ---------------------------------------------------------
-
-    const [subRows] =
-      await connection.query(
-        `SELECT
-           s.*,
-           a.title AS assessment_title,
-           a.description AS assessment_desc
-         FROM assessment_submissions s
-         JOIN assessments a
-           ON s.assessment_id = a.id
-         WHERE s.id = ?`,
-        [submissionId]
-      );
-
-    if (!subRows.length) {
-      throw new Error(
-        `Submission ${submissionId} not found`
-      );
-    }
-
-    const submission = subRows[0];
-
-    // ---------------------------------------------------------
-    // 2. Get rubric criteria
-    // ---------------------------------------------------------
-
-    const [criteria] =
-  await connection.query(
-    `SELECT
-       id,
-       name,
-       description,
-       criterion_type,
-       max_score,
-       sort_order
-     FROM assignment_evaluation_criteria
-     WHERE assessment_id = ?
-     ORDER BY sort_order ASC, id ASC`,
-    [submission.assessment_id]
-  );
-
-if (!criteria.length) {
-  throw new Error(
-    `No rubric criteria found for assessment ${submission.assessment_id}`
-  );
-}
-
-    // ---------------------------------------------------------
-    // 2b. Get supervisor checklist criteria (Chk-1, Chk-2, ...)
-    //
-    // Entirely separate table chain from the rubric above
-    // (assessment_checklist_criteria / assessment_checklist_results).
-    // Not every assessment has checklist criteria — only ones
-    // created from a criteria template — so this can be empty.
-    // ---------------------------------------------------------
-
-    const [checklistCriteria] =
-      await connection.query(
-        `SELECT
-           id,
-           name,
-           description,
-           criterion_type,
-           max_score,
-           sort_order
-         FROM assessment_checklist_criteria
-         WHERE assessment_id = ?
-         ORDER BY sort_order ASC, id ASC`,
-        [submission.assessment_id]
-      );
-
-    const hasChecklist = checklistCriteria.length > 0;
-
-    // ---------------------------------------------------------
-    // 3. Get competencies
-    // ---------------------------------------------------------
-
-    const [competencies] =
-      await connection.query(
-        `SELECT
-           c.id,
-           c.name,
-           c.description,
-           COALESCE(sc.score, 0) AS current_score
-         FROM competencies c
-         LEFT JOIN student_competencies sc
-           ON sc.competency_id = c.id
-          AND sc.student_id = ?
-         ORDER BY c.id`,
-        [submission.student_id]
-      );
-
-    // ---------------------------------------------------------
-    // 4. Fetch repository at EXACT commit
-    // ---------------------------------------------------------
-
-    const ref = await resolveRef(
-      owner,
-      repo,
-      commitSha
-    );
-
-    let fileListSummary = 'No files found';
-    let codeContext =
-      '(no source files could be retrieved)';
-    let relevantPaths = [];
-    let repoFetchFailed = false;
-
-    try {
-      const tree =
-        await fetchRepoTree(
-          owner,
-          repo,
-          ref
-        );
-
-      fileListSummary =
-        tree
-          .map((f) => f.path)
-          .join('\n') ||
-        'No files found';
-
-      relevantPaths =
-        selectRelevantPaths(tree);
-
-      console.log(
-        `[AI DEBUG] Submission ${submissionId}`
-      );
-
-      console.log(
-        `[AI DEBUG] Repository: ${owner}/${repo}`
-      );
-
-      console.log(
-        `[AI DEBUG] Commit: ${ref}`
-      );
-
-      console.log(
-        `[AI DEBUG] Selected files:`,
-        relevantPaths
-      );
-
-      if (relevantPaths.length) {
-        codeContext =
-          await fetchFileContents(
-            owner,
-            repo,
-            ref,
-            relevantPaths
-          );
-      }
-
-      console.log(
-        `[AI DEBUG] Code context length:`,
-        codeContext.length
-      );
-
-      console.log(
-        `[AI DEBUG] Contains test_main.py:`,
-        codeContext.includes(
-          'FILE: test_main.py'
-        )
-      );
-    } catch (treeErr) {
-      console.error(
-        `[AI Service] Repository fetch failed for submission ${submissionId}:`,
-        treeErr.message
-      );
-
-      fileListSummary =
-        'Could not fetch file tree.';
-
-      repoFetchFailed = true;
-    }
-
-    // Never send an empty repository context to Gemini.
-    if (
-      repoFetchFailed ||
-      (relevantPaths.length > 0 &&
-        codeContext ===
-          '(no source files could be retrieved)')
-    ) {
-      throw new Error(
-        `Could not retrieve repository source for ${owner}/${repo}@${ref}. ` +
-          `Aborting AI analysis instead of producing a misleading evaluation.`
-      );
-    }
-
-    if (!relevantPaths.length) {
-      throw new Error(
-        `No relevant source files found in ${owner}/${repo}@${ref}`
-      );
-    }
-
-    // ---------------------------------------------------------
-    // 5. Gemini prompt
-    // ---------------------------------------------------------
-
-    const prompt = `
-You are an expert software engineering professor evaluating a student's assignment.
-
-Your evaluation MUST be based ONLY on the evidence provided in this prompt.
-
-Do NOT invent anything.
-
-==================================================
-ASSIGNMENT
-==================================================
-
-Title:
-${submission.assessment_title}
-
-Description:
-${submission.assessment_desc || 'N/A'}
-
-==================================================
-RUBRIC
-==================================================
-
-This RUBRIC is the ONLY thing the student's grade (total_score) is
-based on. Nothing in the SUPERVISOR CHECKLIST section below affects
-grading in any way.
-
-${JSON.stringify(criteria, null, 2)}
-
-==================================================
-PROJECT RELEVANCE CHECK — DO THIS FIRST, BEFORE SCORING ANYTHING
-==================================================
-
-Before evaluating any individual rubric criterion, decide whether the
-repository is actually an attempt at THIS assignment at all.
-
-Compare the assignment's Title/Description above against what the
-repository's source code, file structure, and README (if present)
-actually implement.
-
-Set "meets_description" to one of:
-- "yes" — the repository is clearly an attempt at this assignment
-  (even if the implementation is incomplete, buggy, or low quality).
-- "partial" — the repository touches on the assignment's general
-  subject area but is missing a major, defining part of what was
-  asked for.
-- "no" — the repository is a fundamentally different project: a
-  different domain, a different purpose, or code that has no
-  meaningful relationship to what the assignment describes (for
-  example: a to-do app submitted for a REST API assignment, an
-  unrelated personal/course repo, or a generic template/boilerplate
-  that was never adapted to this assignment).
-
-THIS CHECK OVERRIDES NORMAL CODE-QUALITY SCORING:
-
-- If "meets_description" is "no": every criterion in
-  criteria_scores MUST score at or near 0 (at most 10% of that
-  criterion's max_score), NO MATTER how clean, well-tested, or
-  well-structured the unrelated code is. A well-engineered wrong
-  project is still a wrong submission. Explain the mismatch in
-  each criterion's rationale instead of evaluating the unrelated
-  code's quality.
-- If "meets_description" is "partial": score only the criteria
-  that the repository's actual content can support; criteria tied
-  to the missing/defining part MUST score low, reflecting that the
-  core requirement was not attempted.
-- If "meets_description" is "yes": score normally, following all
-  the rules below.
-
-General code quality, structure, or professionalism is NEVER a
-substitute for actually attempting the assigned task. Do not let
-a well-organized unrelated repository "average out" to a moderate
-or high score.
-
-==================================================
-SCOPE / LEVEL COMPLETENESS CHECK — ALSO DO THIS BEFORE SCORING
-==================================================
-
-Some assignments (like this one may be) describe multiple difficulty
-levels, tiers, or phases, where each level adds more required
-functionality on top of the previous one, and the student is meant
-to implement as many levels as they completed.
-
-First decide: does the assignment description above actually define
-multiple such levels/tiers/phases? If not, ignore this whole section
-and set "highest_level_reached" to null.
-
-If it DOES define multiple levels:
-
-- Read the repository's code (and README, if present) to determine
-  the HIGHEST level whose functionality is genuinely, completely
-  implemented. Set "highest_level_reached" to that level's number
-  or name (e.g. "1", "Level 2"), and "total_levels_in_assignment"
-  to how many levels the assignment defines.
-- Bugs or missing polish WITHIN an attempted level are a normal,
-  minor code-quality deduction. Missing WHOLE LEVELS is not a minor
-  deduction — it means a large fraction of the assignment's required
-  scope was never attempted at all.
-- The rubric score MUST primarily reflect how much of the
-  assignment's total required scope was completed, not merely
-  whether the completed subset runs cleanly. A flawless, bug-free
-  implementation of only the lowest level of a 4-level assignment
-  has still completed roughly a quarter of what was asked, and must
-  score LOW overall (well below half of each relevant criterion's
-  max_score) — NOT a high score just because what exists has no bugs.
-- Do not let "the code that exists is clean" compensate for "most of
-  the required levels are simply missing." Explain in the rationale
-  which level was reached and how much of the assignment that
-  represents.
-- This is independent of, and in addition to, the PROJECT RELEVANCE
-  CHECK above — a submission can be a correct attempt at the right
-  assignment (meets_description: "yes") while still only completing
-  a small fraction of its required scope.
-
-${
-  hasChecklist
-    ? `==================================================
-SUPERVISOR CHECKLIST
-==================================================
-
-This is a SEPARATE checklist from the RUBRIC above. It comes
-from the course supervisor and uses three kinds of criteria:
-
-- "yes_no"  -> answer must be true or false
-- "score"   -> answer must be a number between 0 and max_score
-- "text"    -> answer must be a short factual string describing
-               what you found (e.g. what level was completed)
-
-IMPORTANT — GRADING INDEPENDENCE:
-
-This checklist has NOTHING to do with the student's grade.
-total_score is computed ONLY from the RUBRIC above.
-
-- Do NOT let a checklist result lower, raise, or otherwise
-  influence any rubric criterion's score.
-- Do NOT let a rubric score influence a checklist answer either.
-- Evaluate the RUBRIC and the CHECKLIST as two fully independent
-  tasks, each based only on its own evidence from the repository.
-- The checklist exists purely so the supervisor/teacher can see
-  informational pass/fail and progress data — it is never part
-  of the student's grade.
-
-${JSON.stringify(checklistCriteria, null, 2)}
-`
-    : ''
-}
-
-==================================================
-CURRENT STUDENT COMPETENCIES
-==================================================
-
-${JSON.stringify(competencies, null, 2)}
-
-==================================================
-REPOSITORY
-==================================================
-
-Repository:
-${owner}/${repo}
-
-Commit:
-${ref}
-
-==================================================
-COMPLETE REPOSITORY FILE LIST
-==================================================
-
-${fileListSummary}
-
-==================================================
-FILES PROVIDED TO YOU
-==================================================
-
-${relevantPaths.join('\n')}
-
-==================================================
-SOURCE CODE
-==================================================
-
-${codeContext}
-
-==================================================
-HARD REPOSITORY FACTS
-==================================================
-
-The repository file list above was mechanically obtained from the
-GitHub repository at the exact commit being evaluated.
-
-The repository file list is FACT.
-
-A file EXISTS in this submission ONLY if its path appears in:
-
-COMPLETE REPOSITORY FILE LIST
-
-A file is ABSENT if its path does not appear there.
-
-CRITICAL RULES:
-
-1. NEVER claim that an absent file exists.
-
-2. NEVER describe the contents of an absent file.
-
-3. NEVER say that an absent file contains application code.
-
-4. NEVER infer the contents of an absent file from the assignment description.
-
-5. If the assignment requires a file that is absent, explicitly say:
-   "The required file X is not present in the submitted repository."
-
-6. If a file exists in the repository file list but its contents are
-   not provided in SOURCE CODE, say that the file exists but its
-   contents could not be inspected.
-
-7. Only claim to have inspected a file when its actual contents are
-   included in SOURCE CODE.
-
-8. The assignment description describes EXPECTED requirements.
-   It does NOT prove that the student implemented them.
-
-9. The repository evidence describes what the student ACTUALLY submitted.
-
-10. Never merge expected requirements with actual repository evidence.
-
-==================================================
-EVALUATION RULES
-==================================================
-
-1. Evaluate the student's ACTUAL submission.
-
-2. Use the assignment description to understand what is required.
-
-3. Use the rubric to determine how the work should be scored.
-
-4. Use the repository file list to determine which files actually exist.
-
-5. Use the source code to determine what is actually implemented.
-
-6. Evaluate every rubric criterion independently.
-
-7. For each criterion, identify actual repository evidence before assigning
-   a score.
-
-8. Do not give zero simply because evidence is incomplete.
-
-9. However, if a required file or required functionality is clearly absent,
-   that is valid evidence that the requirement is not satisfied.
-
-10. If a requirement is partially satisfied, give partial credit.
-
-11. Do not penalize the student because their implementation differs from
-    an implementation you personally expected.
-
-12. File names alone are not proof of functionality.
-
-13. Source code is required to claim implementation behavior.
-
-14. For testing criteria, inspect the actual test files and assertions.
-
-15. For documentation criteria, inspect the actual README/documentation.
-
-16. For implementation criteria, inspect actual source code.
-
-17. Do not reuse the same generic rationale for multiple criteria.
-
-18. Each rationale must explain the evidence relevant to that criterion.
-
-19. Do not invent errors that are not visible in the source.
-
-20. Do not claim tests were executed unless execution evidence is provided.
-
-21. Do not claim functionality works unless the source evidence supports it.
-
-==================================================
-TESTING-SPECIFIC RULES
-==================================================
-
-When a criterion concerns tests:
-
-1. First check whether the repository file list contains test files.
-
-2. If no test file exists, say that the required test suite is absent.
-
-3. If a test file exists, inspect its actual contents.
-
-4. Determine whether it contains actual test cases.
-
-5. Inspect assertions and tested behavior.
-
-6. Do not call a source file a test file merely because its name suggests it.
-
-7. Do not say "test_main.py contains application logic" unless:
-   - test_main.py actually exists in the repository file list, AND
-   - its actual contents are included in SOURCE CODE, AND
-   - those contents demonstrably contain application logic.
-
-8. If test_main.py does not exist, the correct statement is:
-   "test_main.py is not present in the submitted repository."
-
-==================================================
-SCORING RULES
-==================================================
-
-For each criterion:
-
-A. Understand the criterion.
-
-B. Identify relevant repository evidence.
-
-C. Determine whether the criterion is:
-   - fully satisfied
-   - partially satisfied
-   - not satisfied
-
-D. Assign an appropriate score.
-
-E. Explain the decision using actual evidence.
-
-The score MUST be between 0 and the criterion's max_score.
-
-Never exceed max_score.
-
-Do not give every criterion the same score unless the evidence genuinely
-supports the same score.
-
-total_score MUST equal the sum of all criteria scores.
-
-${
-  hasChecklist
-    ? `==================================================
-CHECKLIST RULES
-==================================================
-
-Evaluate every item in SUPERVISOR CHECKLIST independently, using
-the same repository evidence rules as above (only claim what the
-source code / file list actually shows).
-
-For each checklist item, return one object in "checklist_results":
-
-{
-  "checklist_criterion_id": number,
-  "yes_no_value": true | false | null,
-  "score_value": number | null,
-  "text_value": string | null,
-  "feedback": string
-}
-
-Fill in ONLY the field matching that item's type and leave the
-other two value fields null:
-- "yes_no" item  -> set yes_no_value, leave score_value and text_value null
-- "score" item   -> set score_value (0 to max_score), leave yes_no_value and text_value null
-- "text" item    -> set text_value, leave yes_no_value and score_value null
-
-"feedback" is always required: a short (one sentence) note citing
-the evidence for your answer.
-
-checklist_criterion_id MUST match an actual id from SUPERVISOR CHECKLIST.
-
-The checklist_results array MUST contain exactly one item for every
-checklist criterion, with no duplicates and no unknown ids.
-`
-    : ''
-}
-
-==================================================
-COMPETENCY RULES
-==================================================
-
-Competency suggestions MUST be an array of objects.
-
-Each object MUST have:
-
-{
-  "competency_id": number,
-  "suggested_score": number,
-  "reason": string
-}
-
-competency_id MUST correspond to an actual competency ID from
-CURRENT STUDENT COMPETENCIES.
-
-suggested_score must be a numeric score appropriate for that competency.
-
-reason must explain why the competency is relevant to the student's
-actual submission.
-
-NEVER return competency names as strings.
-
-If there are no appropriate competency suggestions, return:
-
-[]
-
-==================================================
-FINAL RESPONSE FORMAT
-==================================================
-
-Return ONLY valid JSON.
-
-{
-  "total_score": 0,
-  "meets_description": "",
-  "highest_level_reached": null,
-  "total_levels_in_assignment": null,
-  "strengths": "",
-  "areas_for_improvement": "",
-  "recommendations": "",
-  "suggested_next_steps": "",
-  "competency_suggestions": [],
-  "criteria_scores": [
-    {
-      "criteria_id": 0,
-      "score": 0,
-      "rationale": ""
-    }
-  ]${
-    hasChecklist
-      ? `,
-  "checklist_results": [
-    {
-      "checklist_criterion_id": 0,
-      "yes_no_value": null,
-      "score_value": null,
-      "text_value": null,
-      "feedback": ""
-    }
-  ]`
-      : ''
-  }
-}
-
-The criteria_scores array MUST:
-
-- contain exactly one item for every rubric criterion
-- use the actual criterion IDs
-- contain no duplicate criterion IDs
-- contain no unknown criterion IDs
-- use scores between 0 and max_score
-- contain a criterion-specific rationale
-
-The final total_score MUST equal the sum of all criterion scores.
-${
-  hasChecklist
-    ? `
-The checklist_results array MUST:
-
-- contain exactly one item for every checklist criterion
-- use the actual checklist_criterion_id values
-- contain no duplicate or unknown checklist_criterion_id values
-- populate only the value field matching that item's type
-`
-    : ''
-}
-Before returning JSON, verify:
-
-- Every rubric criterion appears exactly once.
-- Every score is valid.
-- total_score is correct.
-- No absent file was described as existing.
-- No absent file was described as containing code.
-- No unsupported implementation claim was made.
-- No unsupported test claim was made.
-- Competency suggestions use valid competency IDs.
-- If the assignment defines multiple levels/tiers, highest_level_reached
-  and total_levels_in_assignment are filled in, and the score reflects
-  how much of the total required scope was actually completed — not
-  just the cleanliness of the level(s) that were attempted.${
-  hasChecklist
-    ? '\n- Every checklist criterion appears exactly once, with only the matching value field filled in.'
-    : ''
-}
-`;
-
-    // ---------------------------------------------------------
-    // 6. Call Gemini
-    // ---------------------------------------------------------
-
-    const response =
-      await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: prompt,
-      });
-
-    const rawText =
-      response.text?.trim() || '';
-
-    if (!rawText) {
-      throw new Error(
-        'Gemini returned an empty response'
-      );
-    }
-
-    const cleanJsonStr =
-      rawText
-        .replace(
-          /^```json\s*/i,
-          ''
-        )
-        .replace(
-          /^```\s*/i,
-          ''
-        )
-        .replace(
-          /\s*```$/i,
-          ''
-        )
-        .trim();
-
-    let aiResult;
-
-    try {
-      aiResult =
-        JSON.parse(cleanJsonStr);
-    } catch (parseError) {
-      console.error(
-        '[AI Service] Invalid Gemini JSON:',
-        rawText
-      );
-
-      throw new Error(
-        `Gemini returned invalid JSON: ${parseError.message}`
-      );
-    }
-
-    console.log(
-      `[AI DEBUG] Gemini raw result for submission ${submissionId}:`,
-      JSON.stringify(
-        aiResult,
-        null,
-        2
-      )
-    );
-
-
-    const freeTextFields = [
-      'meets_description',
-      'strengths',
-      'areas_for_improvement',
-      'recommendations',
-      'suggested_next_steps',
-    ];
-
-    for (const field of freeTextFields) {
-      const value = aiResult[field];
+      // ======================================================
+      // RUBRIC CRITERIA
+      // ======================================================
 
       if (
-        value !== undefined &&
-        value !== null &&
-        typeof value !== 'string'
-      ) {
-        aiResult[field] = JSON.stringify(value);
-      }
-    }
-
-    // ---------------------------------------------------------
-    // 7. Validate AI response
-    // ---------------------------------------------------------
-
-    const criteriaById =
-      new Map(
-        criteria.map((c) => [
-          Number(c.id),
-          c,
-        ])
-      );
-
-    if (
-      !Array.isArray(
-        aiResult.criteria_scores
-      ) ||
-      aiResult.criteria_scores.length !==
-        criteria.length
-    ) {
-      throw new Error(
-        `AI returned ${
-          aiResult.criteria_scores?.length || 0
-        } criteria for ${
-          criteria.length
-        } rubric criteria`
-      );
-    }
-
-    const seenCriteria =
-      new Set();
-
-    for (
-      const cs of
-        aiResult.criteria_scores
-    ) {
-      const criterion =
-        criteriaById.get(
-          Number(cs.criteria_id)
-        );
-
-      if (
-        !criterion ||
-        seenCriteria.has(
-          Number(cs.criteria_id)
+        sql.includes(
+          'FROM assignment_evaluation_criteria'
         )
       ) {
-        throw new Error(
-          `AI returned an invalid or duplicate criterion id: ${cs.criteria_id}`
-        );
-      }
-
-      seenCriteria.add(
-        Number(cs.criteria_id)
-      );
-
-      const score =
-        Number(cs.score);
-
-      if (
-        !Number.isFinite(score) ||
-        score < 0 ||
-        score >
-          Number(criterion.max_score)
-      ) {
-        throw new Error(
-          `AI returned an invalid score for criterion ${criterion.id}. ` +
-            `AI score: ${cs.score}, max score: ${criterion.max_score}`
-        );
-      }
-
-      if (
-        !cs.rationale ||
-        typeof cs.rationale !==
-          'string' ||
-        !cs.rationale.trim()
-      ) {
-        throw new Error(
-          `AI returned no rationale for criterion ${criterion.id}`
-        );
-      }
-    }
-
-    if (
-      seenCriteria.size !==
-      criteria.length
-    ) {
-      throw new Error(
-        'AI did not return every rubric criterion'
-      );
-    }
-
-    // ---------------------------------------------------------
-    // 7b. Enforce the PROJECT RELEVANCE CHECK server-side.
-    //
-    // The prompt instructs Gemini to near-zero every criterion when
-    // meets_description is "no", but that instruction lived ONLY in
-    // the prompt text with nothing in code actually enforcing it —
-    // if the model didn't apply it correctly, an unrelated repo
-    // could still get whatever score the model happened to give the
-    // individual criteria (e.g. a well-structured but completely
-    // off-topic project scoring 85). We now enforce the same rule
-    // mechanically here, instead of only trusting the model to
-    // follow it.
-    // ---------------------------------------------------------
-
-    const meetsDescription =
-      typeof aiResult.meets_description === 'string'
-        ? aiResult.meets_description.trim().toLowerCase()
-        : '';
-
-    if (!['yes', 'partial', 'no'].includes(meetsDescription)) {
-      throw new Error(
-        `AI did not return a valid meets_description value (got: ${JSON.stringify(
-          aiResult.meets_description
-        )}). Refusing to trust an unenforced relevance check.`
-      );
-    }
-
-    aiResult.meets_description = meetsDescription;
-
-    if (meetsDescription === 'no') {
-      for (const cs of aiResult.criteria_scores) {
-        const criterion = criteriaById.get(Number(cs.criteria_id));
-        const cap = Number(criterion.max_score) * 0.1;
-
-        if (Number(cs.score) > cap) {
-          console.warn(
-            `[AI Service] Submission ${submissionId}: meets_description="no" but ` +
-              `criterion ${cs.criteria_id} scored ${cs.score}/${criterion.max_score} ` +
-              `(above the ${cap} cap). Clamping — the repository does not match the assignment.`
-          );
-
-          cs.score = cap;
+        if (!hasRubric) {
+          return [[]]
         }
+
+        return [[
+          {
+            id: 1,
+            name: 'Implementation',
+
+            description:
+              'Implement the required functionality.',
+
+            criterion_type: 'score',
+
+            max_score: 10,
+
+            sort_order: 1,
+          },
+
+          {
+            id: 2,
+            name: 'Testing',
+
+            description:
+              'Write appropriate tests.',
+
+            criterion_type: 'score',
+
+            max_score: 10,
+
+            sort_order: 2,
+          },
+        ]]
       }
-    }
 
-    aiResult.total_score =
-      aiResult.criteria_scores.reduce(
-        (sum, cs) =>
-          sum + Number(cs.score),
-        0
-      );
+      // ======================================================
+      // CHECKLIST CRITERIA
+      // ======================================================
 
-    // ---------------------------------------------------------
-    // 7c. Flag (but don't auto-clamp) suspicious level-completeness
-    // scoring.
-    //
-    // Unlike meets_description ("no" -> near-zero), a fair numeric
-    // clamp for "only reached level 2 of 4" isn't well-defined in
-    // general (levels aren't necessarily worth equal points). So
-    // instead of silently rewriting the score, we log loudly when
-    // the reported level gap looks inconsistent with a high score,
-    // so a teacher reviewing this submission can catch it — the
-    // same way the raw Gemini response is already logged above.
-    // ---------------------------------------------------------
-
-    const highestLevel = Number(
-      String(aiResult.highest_level_reached ?? '').match(/\d+/)?.[0]
-    );
-    const totalLevels = Number(
-      String(aiResult.total_levels_in_assignment ?? '').match(/\d+/)?.[0]
-    );
-
-    if (
-      Number.isFinite(highestLevel) &&
-      Number.isFinite(totalLevels) &&
-      totalLevels > 0 &&
-      highestLevel < totalLevels
-    ) {
-      const rubricMax = criteria.reduce(
-        (sum, c) => sum + Number(c.max_score),
-        0
-      );
-      const scorePct = rubricMax > 0 ? aiResult.total_score / rubricMax : 0;
-      const levelPct = highestLevel / totalLevels;
-
-      // Generous buffer (0.25) since a lower-level submission can
-      // still legitimately execute what it does implement well —
-      // this only flags a genuinely large, suspicious mismatch.
-      if (scorePct > levelPct + 0.25) {
-        console.warn(
-          `[AI Service] Submission ${submissionId}: only reached level ` +
-            `${highestLevel}/${totalLevels} of the assignment but scored ` +
-            `${Math.round(scorePct * 100)}% of the rubric max (${
-              aiResult.total_score
-            }/${rubricMax}). This may be over-scored relative to the ` +
-            `amount of required scope actually completed — please review.`
-        );
-      }
-    }
-
-
-    if (hasChecklist) {
       if (
-        !Array.isArray(
-          aiResult.checklist_results
-        ) ||
-        aiResult.checklist_results.length !==
-          checklistCriteria.length
+        sql.includes(
+          'FROM assessment_checklist_criteria'
+        )
       ) {
-        throw new Error(
-          `AI returned ${
-            aiResult.checklist_results?.length || 0
-          } checklist results for ${
-            checklistCriteria.length
-          } checklist criteria`
-        );
+        if (!hasChecklist) {
+          return [[]]
+        }
+
+        return [[
+          {
+            id: 101,
+            name: 'Feature implemented',
+
+            description:
+              'Required feature exists.',
+
+            criterion_type: 'yes_no',
+
+            max_score: null,
+
+            sort_order: 1,
+          },
+
+          {
+            id: 102,
+            name: 'Code quality',
+
+            description:
+              'Evaluate implementation quality.',
+
+            criterion_type: 'score',
+
+            max_score: 10,
+
+            sort_order: 2,
+          },
+
+          {
+            id: 103,
+            name: 'Progress',
+
+            description:
+              'Describe progress.',
+
+            criterion_type: 'text',
+
+            max_score: null,
+
+            sort_order: 3,
+          },
+        ]]
       }
 
-      const checklistById = new Map(
-        checklistCriteria.map((c) => [
-          Number(c.id),
-          c,
-        ])
-      );
+      // ======================================================
+      // COMPETENCIES
+      // ======================================================
 
-      const seenChecklistIds = new Set();
+      if (
+        sql.includes(
+          'FROM competencies c'
+        )
+      ) {
+        return [[
+          {
+            id: 1,
 
-      for (const cr of aiResult.checklist_results) {
-        const criterion = checklistById.get(
-          Number(cr.checklist_criterion_id)
-        );
+            name:
+              'Programming',
 
-        if (
-          !criterion ||
-          seenChecklistIds.has(
-            Number(cr.checklist_criterion_id)
-          )
-        ) {
+            description:
+              'Programming skills',
+
+            current_score: 60,
+          },
+        ]]
+      }
+
+      // ======================================================
+      // INSERT AI EVALUATION
+      // ======================================================
+
+      if (
+        sql.includes(
+          'INSERT INTO ai_evaluations'
+        )
+      ) {
+        if (failInsertEvaluation) {
           throw new Error(
-            `AI returned an invalid or duplicate checklist criterion id: ${cr.checklist_criterion_id}`
-          );
-        }
-
-        seenChecklistIds.add(
-          Number(cr.checklist_criterion_id)
-        );
-
-        if (
-          criterion.criterion_type === 'score' &&
-          cr.score_value !== null &&
-          cr.score_value !== undefined
-        ) {
-          const scoreValue = Number(cr.score_value);
-
-          if (
-            !Number.isFinite(scoreValue) ||
-            scoreValue < 0 ||
-            (criterion.max_score !== null &&
-              scoreValue > Number(criterion.max_score))
-          ) {
-            throw new Error(
-              `AI returned an invalid score for checklist criterion ${criterion.id}. ` +
-                `AI score: ${cr.score_value}, max score: ${criterion.max_score}`
-            );
-          }
-        }
-      }
-
-      if (seenChecklistIds.size !== checklistCriteria.length) {
-        throw new Error(
-          'AI did not return every checklist criterion'
-        );
-      }
-    } else {
-      aiResult.checklist_results = [];
-    }
-
-    // ---------------------------------------------------------
-    // Validate competency suggestions
-    // ---------------------------------------------------------
-
-    if (
-      aiResult.competency_suggestions ===
-        undefined ||
-      aiResult.competency_suggestions ===
-        null
-    ) {
-      aiResult.competency_suggestions =
-        [];
-    }
-
-    if (
-      !Array.isArray(
-        aiResult.competency_suggestions
-      )
-    ) {
-      throw new Error(
-        'AI returned invalid competency_suggestions format'
-      );
-    }
-
-    const validCompetencyIds =
-      new Set(
-        competencies.map((c) =>
-          Number(c.id)
-        )
-      );
-
-    const normalizedCompetencySuggestions =
-      [];
-
-    for (
-      const suggestion of
-        aiResult.competency_suggestions
-    ) {
-      if (
-        !suggestion ||
-        typeof suggestion !==
-          'object'
-      ) {
-        continue;
-      }
-
-      const competencyId =
-        Number(
-          suggestion.competency_id
-        );
-
-      if (
-        !Number.isInteger(
-          competencyId
-        ) ||
-        !validCompetencyIds.has(
-          competencyId
-        )
-      ) {
-        continue;
-      }
-
-      const suggestedScore =
-        Number(
-          suggestion.suggested_score
-        );
-
-      if (
-        !Number.isFinite(
-          suggestedScore
-        )
-      ) {
-        continue;
-      }
-
-      const competency =
-        competencies.find(
-          (c) =>
-            Number(c.id) ===
-            competencyId
-        );
-
-      const currentScore =
-        competency
-          ? Number(
-              competency.current_score
-            )
-          : 0;
-
-      const boundedScore =
-        Math.max(
-          0,
-          Math.min(
-            100,
-            suggestedScore
+            'Database insert failed'
           )
-        );
-
-      normalizedCompetencySuggestions.push(
-        {
-          competency_id:
-            competencyId,
-          suggested_score:
-            boundedScore,
-          reason:
-            typeof suggestion.reason ===
-            'string'
-              ? suggestion.reason
-              : 'AI identified this competency as relevant to the student submission.',
-          current_score:
-            Number.isFinite(
-              currentScore
-            )
-              ? currentScore
-              : 0,
         }
-      );
-    }
 
-    aiResult.competency_suggestions =
-      normalizedCompetencySuggestions;
-
-    // ---------------------------------------------------------
-    // 8. Save AI evaluation
-    // ---------------------------------------------------------
-
-    await connection.beginTransaction();
-    transactionStarted = true;
-
-    for (
-      const targetId of
-        targetSubmissionIds
-    ) {
-      const [evalResult] =
-        await connection.query(
-          `INSERT INTO ai_evaluations
-            (
-              submission_id,
-              total_ai_score,
-              strengths,
-              areas_for_improvement,
-              recommendations,
-              suggested_next_steps,
-              raw_ai_response,
-              status
-            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')`,
-          [
-            targetId,
-            aiResult.total_score,
-            aiResult.strengths ||
-              null,
-            aiResult.areas_for_improvement ||
-              null,
-            aiResult.recommendations ||
-              null,
-            aiResult.suggested_next_steps ||
-              null,
-            JSON.stringify(
-              aiResult
-            ),
-          ]
-        );
-
-      const aiEvaluationId =
-        evalResult.insertId;
-
-      // -------------------------------------------------------
-      // Save rubric criterion scores
-      // -------------------------------------------------------
-
-      for (
-        const cs of
-          aiResult.criteria_scores
-      ) {
-        await connection.query(
-          `INSERT INTO criterion_scores
-            (
-              ai_evaluation_id,
-              criterion_id,
-              ai_recommended_score,
-              ai_rationale
-            )
-           VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             ai_recommended_score =
-               VALUES(ai_recommended_score),
-             ai_rationale =
-               VALUES(ai_rationale)`,
-          [
-            aiEvaluationId,
-            cs.criteria_id,
-            cs.score,
-            cs.rationale,
-          ]
-        );
+        return [{
+          insertId: 500,
+        }]
       }
 
-      // -------------------------------------------------------
-      // Save checklist results (Chk-1, Chk-2, ... — separate
-      // table chain from criterion_scores above)
-      // -------------------------------------------------------
-
-      for (
-        const cr of
-          aiResult.checklist_results
-      ) {
-        await connection.query(
-          `INSERT INTO assessment_checklist_results
-            (
-              ai_evaluation_id,
-              checklist_criterion_id,
-              ai_yes_no_value,
-              ai_score_value,
-              ai_text_value,
-              ai_feedback
-            )
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             ai_yes_no_value =
-               VALUES(ai_yes_no_value),
-             ai_score_value =
-               VALUES(ai_score_value),
-             ai_text_value =
-               VALUES(ai_text_value),
-             ai_feedback =
-               VALUES(ai_feedback)`,
-          [
-            aiEvaluationId,
-            cr.checklist_criterion_id,
-            cr.yes_no_value === undefined
-              ? null
-              : cr.yes_no_value,
-            cr.score_value === undefined
-              ? null
-              : cr.score_value,
-            cr.text_value === undefined
-              ? null
-              : cr.text_value,
-            cr.feedback === undefined
-              ? null
-              : cr.feedback,
-          ]
-        );
-      }
-
-      // -------------------------------------------------------
-      // Save competency suggestions
-      // -------------------------------------------------------
+      // ======================================================
+      // INSERT CRITERION SCORES
+      // ======================================================
 
       if (
-        aiResult
-          .competency_suggestions
-          .length > 0
+        sql.includes(
+          'INSERT INTO criterion_scores'
+        )
       ) {
-        const [
-          targetStudentRows,
-        ] =
-          await connection.query(
-            `SELECT student_id
-             FROM assessment_submissions
-             WHERE id = ?
-             LIMIT 1`,
-            [targetId]
-          );
+        return [{
+          affectedRows: 1,
+        }]
+      }
 
-        const targetStudentId =
-          targetStudentRows[0]
-            ?.student_id;
+      // ======================================================
+      // INSERT CHECKLIST RESULTS
+      // ======================================================
 
-        if (targetStudentId) {
-          for (
-            const suggestion of
-              aiResult.competency_suggestions
-          ) {
-            const competencyId =
-              Number(
-                suggestion.competency_id
-              );
+      if (
+        sql.includes(
+          'INSERT INTO assessment_checklist_results'
+        )
+      ) {
+        return [{
+          affectedRows: 1,
+        }]
+      }
 
-            const [
-              competencyExists,
-            ] =
-              await connection.query(
-                `SELECT id
-                 FROM competencies
-                 WHERE id = ?
-                 LIMIT 1`,
-                [competencyId]
-              );
+      // ======================================================
+      // GET STUDENT ID
+      // ======================================================
 
-            if (
-              !competencyExists.length
-            ) {
-              continue;
-            }
+      if (
+        sql.includes(
+          'SELECT student_id'
+        ) &&
+        sql.includes(
+          'FROM assessment_submissions'
+        )
+      ) {
+        return [[
+          {
+            student_id: 50,
+          },
+        ]]
+      }
 
-            const [
-              scoreRows,
-            ] =
-              await connection.query(
-                `SELECT score
-                 FROM student_competencies
-                 WHERE student_id = ?
-                   AND competency_id = ?
-                 LIMIT 1`,
-                [
-                  targetStudentId,
-                  competencyId,
-                ]
-              );
+      // ======================================================
+      // CHECK COMPETENCY EXISTS
+      // ======================================================
 
-            const currentScore =
-              scoreRows.length > 0
-                ? Number(
-                    scoreRows[0].score
-                  )
-                : 0;
+      if (
+        sql.includes(
+          'SELECT id'
+        ) &&
+        sql.includes(
+          'FROM competencies'
+        )
+      ) {
+        return [[
+          {
+            id: 1,
+          },
+        ]]
+      }
 
-            const suggestedScore =
-              Number(
-                suggestion.suggested_score
-              );
+      // ======================================================
+      // GET CURRENT COMPETENCY SCORE
+      // ======================================================
 
-            await connection.query(
-              `INSERT INTO ai_competency_suggestions
-                (
-                  ai_evaluation_id,
-                  competency_id,
-                  current_score,
-                  suggested_score,
-                  reason
-                )
-               VALUES (?, ?, ?, ?, ?)`,
-              [
-                aiEvaluationId,
-                competencyId,
-                Number.isFinite(
-                  currentScore
-                )
-                  ? currentScore
-                  : 0,
-                Number.isFinite(
-                  suggestedScore
-                )
-                  ? suggestedScore
-                  : currentScore,
-                suggestion.reason ||
-                  null,
-              ]
-            );
-          }
+      if (
+        sql.includes(
+          'SELECT score'
+        ) &&
+        sql.includes(
+          'FROM student_competencies'
+        )
+      ) {
+        return [[
+          {
+            score: 60,
+          },
+        ]]
+      }
+
+      // ======================================================
+      // INSERT COMPETENCY SUGGESTION
+      // ======================================================
+
+      if (
+        sql.includes(
+          'INSERT INTO ai_competency_suggestions'
+        )
+      ) {
+        return [{
+          affectedRows: 1,
+        }]
+      }
+
+      // ======================================================
+      // UPDATE SUBMISSION
+      // ======================================================
+
+      if (
+        sql.includes(
+          'UPDATE assessment_submissions'
+        )
+      ) {
+        return [{
+          affectedRows: 1,
+        }]
+      }
+
+      return [[]]
+    }
+  )
+}
+
+// ============================================================
+// GITHUB MOCK SETUP
+// ============================================================
+
+function setupGithubMocks() {
+  global.fetch = vi.fn()
+
+  global.fetch.mockImplementation(
+    async (url) => {
+
+      // ======================================================
+      // REPOSITORY TREE
+      // ======================================================
+
+      if (
+        url.includes(
+          '/git/trees/'
+        )
+      ) {
+        return {
+          ok: true,
+
+          json: async () => ({
+            tree: [
+              {
+                path: 'main.py',
+                type: 'blob',
+              },
+
+              {
+                path: 'test_main.py',
+                type: 'blob',
+              },
+
+              {
+                path: 'README.md',
+                type: 'blob',
+              },
+            ],
+          }),
         }
       }
 
-      // -------------------------------------------------------
-      // Mark submission as AI reviewed
-      // -------------------------------------------------------
+      // ======================================================
+      // RAW MAIN FILE
+      // ======================================================
 
-      await connection.query(
-        `UPDATE assessment_submissions
-         SET
-           status = 'ai_reviewed',
-           analyzed_at = NOW(),
-           ai_score = ?
-         WHERE id = ?`,
-        [
-          aiResult.total_score,
-          targetId,
+      if (
+        url.includes(
+          '/main.py'
+        )
+      ) {
+        return {
+          ok: true,
+
+          text: async () =>
+            `
+def add(a, b):
+    return a + b
+            `,
+        }
+      }
+
+      // ======================================================
+      // RAW TEST FILE
+      // ======================================================
+
+      if (
+        url.includes(
+          '/test_main.py'
+        )
+      ) {
+        return {
+          ok: true,
+
+          text: async () =>
+            `
+from main import add
+
+def test_add():
+    assert add(2, 3) == 5
+            `,
+        }
+      }
+
+      // ======================================================
+      // RAW README
+      // ======================================================
+
+      if (
+        url.includes(
+          '/README.md'
+        )
+      ) {
+        return {
+          ok: true,
+
+          text: async () =>
+            '# Python Assignment',
+        }
+      }
+
+      return {
+        ok: false,
+        status: 404,
+      }
+    }
+  )
+}
+
+// ============================================================
+// DEFAULT SETUP
+// ============================================================
+
+beforeEach(() => {
+  vi.clearAllMocks()
+
+  setupDatabaseMocks()
+
+  setupGithubMocks()
+
+  mockGenerateContent.mockResolvedValue({
+    text: JSON.stringify(
+      createSuccessfulAiResponse()
+    ),
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+// ============================================================
+// TESTS
+// ============================================================
+
+describe(
+  'analyzeSubmissionWithGemini',
+  () => {
+
+    // ========================================================
+    // SUCCESS
+    // ========================================================
+
+    it(
+      'successfully analyzes a submission',
+      async () => {
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockGenerateContent
+        ).toHaveBeenCalledTimes(1)
+
+        expect(
+          mockBeginTransaction
+        ).toHaveBeenCalledTimes(1)
+
+        expect(
+          mockCommit
+        ).toHaveBeenCalledTimes(1)
+
+        expect(
+          mockRollback
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockRelease
+        ).toHaveBeenCalledTimes(1)
+      }
+    )
+
+    // ========================================================
+    // SAVE AI EVALUATION
+    // ========================================================
+
+    it(
+      'saves the AI evaluation',
+      async () => {
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(call).toBeDefined()
+
+        expect(call[1][1]).toBe(15)
+      }
+    )
+
+    // ========================================================
+    // SAVE CRITERIA
+    // ========================================================
+
+    it(
+      'saves every rubric criterion score',
+      async () => {
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const calls =
+          mockQuery.mock.calls.filter(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO criterion_scores'
+              )
+          )
+
+        expect(calls).toHaveLength(2)
+      }
+    )
+
+    // ========================================================
+    // BACKEND CALCULATES TOTAL
+    // ========================================================
+
+    it(
+      'calculates total score from criteria',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.total_score = 999
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(call[1][1]).toBe(15)
+      }
+    )
+
+    // ========================================================
+    // LEVEL COMPLETENESS CLAMP
+    //
+    // A submission that only reached a low level of a multi-level
+    // assignment must not keep whatever high score the model
+    // happened to assign the individual criteria — the score is
+    // mechanically capped relative to how much of the assignment's
+    // scope was actually completed. This is what stops two
+    // submissions (one finishing all levels, one not even finishing
+    // level 2) from ending up with the same AI score.
+    // ========================================================
+
+    it(
+      'clamps the score down when only a low level was reached',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        // rubric max is 10 + 10 = 20. Only level 1 of 4 was reached
+        // (25%), so with the 0.25 buffer the allowed ceiling is 50%
+        // of the rubric max (10), well below the model's raw 15.
+        response.highest_level_reached = '1'
+        response.total_levels_in_assignment = '4'
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        // Clamped to allowedMax (20 * 0.5 = 10), not the raw 15.
+        expect(call[1][1]).toBe(10)
+
+        const criterionCalls =
+          mockQuery.mock.calls.filter(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO criterion_scores'
+              )
+          )
+
+        // Each criterion score is scaled down by the same factor
+        // (10/15), not just the total.
+        expect(criterionCalls[0][1][2]).toBeCloseTo(6.67, 2)
+        expect(criterionCalls[1][1][2]).toBeCloseTo(3.33, 2)
+      }
+    )
+
+    it(
+      'does not clamp the score when the highest level equals the total levels',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.highest_level_reached = '4'
+        response.total_levels_in_assignment = '4'
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(call[1][1]).toBe(15)
+      }
+    )
+
+    it(
+      'does not clamp when the score is already within the level-completion buffer',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        // levelPct = 0.5, allowed ceiling = 0.75 * 20 = 15, which
+        // equals the raw total — no clamp should be applied.
+        response.highest_level_reached = '2'
+        response.total_levels_in_assignment = '4'
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(call[1][1]).toBe(15)
+      }
+    )
+
+    it(
+      'does not clamp assignments that do not define multiple levels',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.highest_level_reached = null
+        response.total_levels_in_assignment = null
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(call[1][1]).toBe(15)
+      }
+    )
+
+    // ========================================================
+    // SUBMISSION NOT FOUND
+    // ========================================================
+
+    it(
+      'marks submission as error when submission does not exist',
+      async () => {
+
+        setupDatabaseMocks({
+          submissionExists: false,
+        })
+
+        await analyzeSubmissionWithGemini(
+          999,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockGenerateContent
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockPoolQuery
+        ).toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // NO RUBRIC
+    // ========================================================
+
+    it(
+      'marks submission as error when rubric does not exist',
+      async () => {
+
+        setupDatabaseMocks({
+          hasRubric: false,
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockGenerateContent
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockPoolQuery
+        ).toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // WRONG NUMBER OF CRITERIA
+    // ========================================================
+
+    it(
+      'rejects wrong number of criteria',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.criteria_scores = [
+          response.criteria_scores[0],
         ]
-      );
-    }
 
-    await connection.commit();
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
 
-    console.log(
-      `[AI Service] Successfully analyzed submission ${submissionId} with Gemini! ` +
-        `(fanned out to ${targetSubmissionIds.length} submission row(s): ${targetSubmissionIds.join(', ')})`
-    );
-  } catch (error) {
-    if (transactionStarted) {
-      await connection.rollback();
-    }
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
 
-    console.error(
-      `[AI Service] Error analyzing submission ${submissionId}:`,
-      error.message
-    );
+        expect(
+          mockBeginTransaction
+        ).not.toHaveBeenCalled()
 
-    try {
-      await pool.query(
-        `UPDATE assessment_submissions
-         SET status = 'error'
-         WHERE id IN (?)`,
-        [targetSubmissionIds]
-      );
-    } catch (statusError) {
-      console.error(
-        '[AI Service] Failed to mark submission as error:',
-        statusError.message
-      );
-    }
-  } finally {
-    connection.release();
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockPoolQuery
+        ).toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // INVALID CRITERION ID
+    // ========================================================
+
+    it(
+      'rejects invalid criterion ID',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.criteria_scores[0].criteria_id =
+          999
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockPoolQuery
+        ).toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // DUPLICATE CRITERION ID
+    // ========================================================
+
+    it(
+      'rejects duplicate criterion IDs',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.criteria_scores[1].criteria_id =
+          1
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // SCORE ABOVE MAX
+    // ========================================================
+
+    it(
+      'rejects score above rubric maximum',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.criteria_scores[0].score =
+          999
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // NEGATIVE SCORE
+    // ========================================================
+
+    it(
+      'rejects negative score',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.criteria_scores[0].score =
+          -1
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // MISSING RATIONALE
+    // ========================================================
+
+    it(
+      'rejects missing rationale',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.criteria_scores[0].rationale =
+          ''
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // INVALID JSON
+    // ========================================================
+
+    it(
+      'handles invalid Gemini JSON',
+      async () => {
+
+        mockGenerateContent.mockResolvedValue({
+          text:
+            'This is not JSON',
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockGenerateContent
+        ).toHaveBeenCalled()
+
+        expect(
+          mockBeginTransaction
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // EMPTY GEMINI RESPONSE
+    // ========================================================
+
+    it(
+      'handles empty Gemini response',
+      async () => {
+
+        mockGenerateContent.mockResolvedValue({
+          text: '',
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockBeginTransaction
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // REPOSITORY FETCH FAILURE
+    // ========================================================
+
+    it(
+      'does not call Gemini when repository fetch fails',
+      async () => {
+
+        global.fetch.mockResolvedValue({
+          ok: false,
+          status: 404,
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockGenerateContent
+        ).not.toHaveBeenCalled()
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // CHECKLIST SUCCESS
+    // ========================================================
+
+    it(
+      'saves checklist results when checklist exists',
+      async () => {
+
+        setupDatabaseMocks({
+          hasChecklist: true,
+        })
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(
+            createChecklistAiResponse()
+          ),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const calls =
+          mockQuery.mock.calls.filter(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO assessment_checklist_results'
+              )
+          )
+
+        expect(calls).toHaveLength(3)
+
+        expect(
+          mockCommit
+        ).toHaveBeenCalledTimes(1)
+      }
+    )
+
+    // ========================================================
+    // INVALID CHECKLIST COUNT
+    // ========================================================
+
+    it(
+      'rejects wrong number of checklist results',
+      async () => {
+
+        setupDatabaseMocks({
+          hasChecklist: true,
+        })
+
+        const response =
+          createChecklistAiResponse()
+
+        response.checklist_results.pop()
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // INVALID CHECKLIST ID
+    // ========================================================
+
+    it(
+      'rejects invalid checklist criterion ID',
+      async () => {
+
+        setupDatabaseMocks({
+          hasChecklist: true,
+        })
+
+        const response =
+          createChecklistAiResponse()
+
+        response.checklist_results[0]
+          .checklist_criterion_id = 999
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // DUPLICATE CHECKLIST ID
+    // ========================================================
+
+    it(
+      'rejects duplicate checklist IDs',
+      async () => {
+
+        setupDatabaseMocks({
+          hasChecklist: true,
+        })
+
+        const response =
+          createChecklistAiResponse()
+
+        response.checklist_results[1]
+          .checklist_criterion_id = 101
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // CHECKLIST SCORE ABOVE MAX
+    // ========================================================
+
+    it(
+      'rejects checklist score above maximum',
+      async () => {
+
+        setupDatabaseMocks({
+          hasChecklist: true,
+        })
+
+        const response =
+          createChecklistAiResponse()
+
+        response.checklist_results[1]
+          .score_value = 999
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // COMPETENCY SCORE BOUNDING
+    // ========================================================
+
+    it(
+      'bounds competency suggestion score to 100',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response
+          .competency_suggestions[0]
+          .suggested_score = 999
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_competency_suggestions'
+              )
+          )
+
+        expect(call).toBeDefined()
+
+        // suggested_score database parameter
+        expect(call[1][3]).toBe(100)
+      }
+    )
+
+    // ========================================================
+    // INVALID COMPETENCY IS IGNORED
+    // ========================================================
+
+    it(
+      'ignores invalid competency IDs',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.competency_suggestions = [
+          {
+            competency_id: 999,
+            suggested_score: 80,
+            reason: 'Invalid competency',
+          },
+        ]
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        const calls =
+          mockQuery.mock.calls.filter(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_competency_suggestions'
+              )
+          )
+
+        expect(calls).toHaveLength(0)
+
+        expect(
+          mockCommit
+        ).toHaveBeenCalledTimes(1)
+      }
+    )
+
+    // ========================================================
+    // ROLLBACK AFTER TRANSACTION ERROR
+    // ========================================================
+
+    it(
+      'rolls back when database save fails',
+      async () => {
+
+        setupDatabaseMocks({
+          failInsertEvaluation: true,
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockBeginTransaction
+        ).toHaveBeenCalledTimes(1)
+
+        expect(
+          mockRollback
+        ).toHaveBeenCalledTimes(1)
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // CONNECTION ALWAYS RELEASED
+    // ========================================================
+
+    it(
+      'always releases database connection on error',
+      async () => {
+
+        mockGenerateContent.mockResolvedValue({
+          text: 'invalid json',
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockRelease
+        ).toHaveBeenCalledTimes(1)
+      }
+    )
+
+    // ========================================================
+    // FAN OUT MULTIPLE SUBMISSIONS
+    // ========================================================
+
+    it(
+      'saves evaluation for multiple submission IDs',
+      async () => {
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main',
+          [100, 101]
+        )
+
+        const calls =
+          mockQuery.mock.calls.filter(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(calls).toHaveLength(2)
+      }
+    )
+
   }
-};
+)

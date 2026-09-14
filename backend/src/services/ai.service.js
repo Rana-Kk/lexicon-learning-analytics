@@ -1200,16 +1200,22 @@ Before returning JSON, verify:
       );
 
     // ---------------------------------------------------------
-    // 7c. Flag (but don't auto-clamp) suspicious level-completeness
-    // scoring.
+    // 7c. Enforce the SCOPE / LEVEL COMPLETENESS CHECK server-side.
     //
-    // Unlike meets_description ("no" -> near-zero), a fair numeric
-    // clamp for "only reached level 2 of 4" isn't well-defined in
-    // general (levels aren't necessarily worth equal points). So
-    // instead of silently rewriting the score, we log loudly when
-    // the reported level gap looks inconsistent with a high score,
-    // so a teacher reviewing this submission can catch it — the
-    // same way the raw Gemini response is already logged above.
+    // Same problem as 7b: the prompt tells Gemini that a submission
+    // which only reached level N of M must score low overall, but
+    // that instruction lived ONLY in the prompt text with nothing in
+    // code enforcing it. In practice this let two submissions with
+    // wildly different amounts of completed scope (e.g. finished
+    // all 4 levels vs. didn't even finish level 2) end up with the
+    // same, uncapped AI score whenever the model reported the level
+    // gap correctly but then didn't actually dock the score for it.
+    //
+    // Unlike meets_description ("no" -> near-zero), levels aren't
+    // necessarily worth equal points, so instead of zeroing things
+    // out we cap the total at (level fraction + a generous buffer)
+    // of the rubric max, then scale every criterion down by the same
+    // factor so relative scoring between criteria is preserved.
     // ---------------------------------------------------------
 
     const highestLevel = Number(
@@ -1229,20 +1235,35 @@ Before returning JSON, verify:
         (sum, c) => sum + Number(c.max_score),
         0
       );
-      const scorePct = rubricMax > 0 ? aiResult.total_score / rubricMax : 0;
       const levelPct = highestLevel / totalLevels;
 
       // Generous buffer (0.25) since a lower-level submission can
       // still legitimately execute what it does implement well —
-      // this only flags a genuinely large, suspicious mismatch.
-      if (scorePct > levelPct + 0.25) {
+      // this only caps a genuinely large, suspicious mismatch.
+      const allowedPct = Math.min(1, levelPct + 0.25);
+      const allowedMax = rubricMax * allowedPct;
+
+      if (rubricMax > 0 && aiResult.total_score > allowedMax) {
+        const scale =
+          aiResult.total_score > 0 ? allowedMax / aiResult.total_score : 0;
+
         console.warn(
           `[AI Service] Submission ${submissionId}: only reached level ` +
             `${highestLevel}/${totalLevels} of the assignment but scored ` +
-            `${Math.round(scorePct * 100)}% of the rubric max (${
-              aiResult.total_score
-            }/${rubricMax}). This may be over-scored relative to the ` +
-            `amount of required scope actually completed — please review.`
+            `${aiResult.total_score}/${rubricMax} (${Math.round(
+              (aiResult.total_score / rubricMax) * 100
+            )}%). Clamping to ${Math.round(allowedMax * 100) / 100}/${rubricMax} ` +
+            `(${Math.round(allowedPct * 100)}%) to reflect the amount of ` +
+            `required scope actually completed.`
+        );
+
+        for (const cs of aiResult.criteria_scores) {
+          cs.score = Math.round(Number(cs.score) * scale * 100) / 100;
+        }
+
+        aiResult.total_score = aiResult.criteria_scores.reduce(
+          (sum, cs) => sum + Number(cs.score),
+          0
         );
       }
     }
