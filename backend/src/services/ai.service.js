@@ -58,9 +58,15 @@ const SOURCE_EXTENSIONS = [
   '.txt',
 ];
 
-const MAX_FILES = 50;
-const MAX_TOTAL_CHARS = 120000;
-const MAX_FILE_CHARS = 15000;
+const MAX_FILES = 60;
+// Raised from 120000 / 15000: the previous limits were silently cutting
+// mid-size student projects (e.g. a single C# file with 4 console-app
+// levels) off partway through. Gemini then read the truncation marker
+// as evidence the feature itself was "incomplete", producing unfair
+// low scores for fully-implemented code. gemini-3.1-flash-lite has
+// plenty of context headroom for these sizes.
+const MAX_TOTAL_CHARS = 350000;
+const MAX_FILE_CHARS = 60000;
 
 function isRelevantPath(path) {
   const lower = path.toLowerCase();
@@ -262,7 +268,11 @@ async function fetchFileContents(
       if (content.length > MAX_FILE_CHARS) {
         content =
           content.slice(0, MAX_FILE_CHARS) +
-          '\n...[truncated]';
+          '\n...[FILE CONTINUES BEYOND THIS POINT - cut off only ' +
+          'because of a display length limit. This is NOT evidence ' +
+          'that the feature or implementation itself is incomplete. ' +
+          'Do not describe this file as "truncated/incomplete" as if ' +
+          'that were a flaw in the student\'s work.]';
       }
 
       sections.push(
@@ -513,6 +523,46 @@ Your evaluation MUST be based ONLY on the evidence provided in this prompt.
 Do NOT invent anything.
 
 ==================================================
+GRADING PHILOSOPHY
+==================================================
+
+This evaluation is FORMATIVE. Its purpose is to help the student see
+where to improve next — it is NOT shown to the student as a final
+verdict, and it should not be optimized for the lowest defensible
+score. Apply this mindset to every criterion:
+
+1. Reserve low scores for criteria where the actual requirement is
+   substantially or functionally unmet. Do not reserve them for
+   surface-level imperfections.
+
+2. Do NOT reduce a score because of small, cosmetic issues such as:
+   a typo or copy-pasted label in a printed string/header (e.g. a
+   menu title that still says "LEVEL 2" inside the Level 1 method),
+   an unused import, a leftover debug shortcut, minor inconsistent
+   capitalization or spacing, or similar slips that do not change
+   whether the requirement is functionally satisfied. If the
+   criterion is specifically about code cleanliness/quality, a small
+   deduction proportional to the actual impact is fine — but do not
+   let a single cosmetic slip drag a whole criterion's score down.
+
+3. If a file was only partially shown to you because of a length
+   limit (see the truncation marker described below), that is NOT
+   evidence the underlying feature is incomplete or broken. Evaluate
+   what you can see, and if something genuinely cannot be verified,
+   note that neutrally as a limitation in the evidence rather than
+   scoring it down as if it were a defect.
+
+4. When a requirement is met but imperfectly — e.g. it works through
+   a slightly different mechanism than you expected, or one of
+   several sub-features is a little rough — prefer the more generous
+   of two plausible scores as long as the core requirement is
+   functionally satisfied.
+
+5. Write rationale that is specific and constructive: name the exact
+   gap and what closing it would look like, instead of a generic
+   "incomplete" or "could be improved" comment.
+
+==================================================
 ASSIGNMENT
 ==================================================
 
@@ -641,6 +691,15 @@ CRITICAL RULES:
 
 10. Never merge expected requirements with actual repository evidence.
 
+11. A file in SOURCE CODE may end with a marker saying it "continues
+    beyond this point" — that means only the first part of a large
+    file was included due to a length limit, NOT that the student's
+    code is unfinished. Never describe such a file as "truncated",
+    "incomplete", or "partially implemented" as if that were a flaw
+    in the submission. Judge the part you can see on its own merits,
+    and if you cannot verify something specific because of this,
+    say so as a plain limitation of your evidence, not as a penalty.
+
 ==================================================
 EVALUATION RULES
 ==================================================
@@ -690,6 +749,10 @@ EVALUATION RULES
 
 21. Do not claim functionality works unless the source evidence supports it.
 
+22. Follow the GRADING PHILOSOPHY above: do not let cosmetic or
+    trivial issues drive down a score for a criterion whose actual
+    requirement is met.
+
 ==================================================
 TESTING-SPECIFIC RULES
 ==================================================
@@ -731,7 +794,9 @@ C. Determine whether the criterion is:
    - partially satisfied
    - not satisfied
 
-D. Assign an appropriate score.
+D. Assign an appropriate score, applying the GRADING PHILOSOPHY above
+   — favor the more generous of two defensible scores when the core
+   requirement is functionally met.
 
 E. Explain the decision using actual evidence.
 
@@ -876,6 +941,9 @@ Before returning JSON, verify:
 - No absent file was described as containing code.
 - No unsupported implementation claim was made.
 - No unsupported test claim was made.
+- No score was reduced for a cosmetic/trivial issue on a criterion
+  whose actual requirement is met.
+- No file was scored down merely for being length-truncated.
 - Competency suggestions use valid competency IDs.${
   hasChecklist
     ? '\n- Every checklist criterion appears exactly once, with only the matching value field filled in.'
