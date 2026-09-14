@@ -532,6 +532,51 @@ grading in any way.
 
 ${JSON.stringify(criteria, null, 2)}
 
+==================================================
+PROJECT RELEVANCE CHECK — DO THIS FIRST, BEFORE SCORING ANYTHING
+==================================================
+
+Before evaluating any individual rubric criterion, decide whether the
+repository is actually an attempt at THIS assignment at all.
+
+Compare the assignment's Title/Description above against what the
+repository's source code, file structure, and README (if present)
+actually implement.
+
+Set "meets_description" to one of:
+- "yes" — the repository is clearly an attempt at this assignment
+  (even if the implementation is incomplete, buggy, or low quality).
+- "partial" — the repository touches on the assignment's general
+  subject area but is missing a major, defining part of what was
+  asked for.
+- "no" — the repository is a fundamentally different project: a
+  different domain, a different purpose, or code that has no
+  meaningful relationship to what the assignment describes (for
+  example: a to-do app submitted for a REST API assignment, an
+  unrelated personal/course repo, or a generic template/boilerplate
+  that was never adapted to this assignment).
+
+THIS CHECK OVERRIDES NORMAL CODE-QUALITY SCORING:
+
+- If "meets_description" is "no": every criterion in
+  criteria_scores MUST score at or near 0 (at most 10% of that
+  criterion's max_score), NO MATTER how clean, well-tested, or
+  well-structured the unrelated code is. A well-engineered wrong
+  project is still a wrong submission. Explain the mismatch in
+  each criterion's rationale instead of evaluating the unrelated
+  code's quality.
+- If "meets_description" is "partial": score only the criteria
+  that the repository's actual content can support; criteria tied
+  to the missing/defining part MUST score low, reflecting that the
+  core requirement was not attempted.
+- If "meets_description" is "yes": score normally, following all
+  the rules below.
+
+General code quality, structure, or professionalism is NEVER a
+substitute for actually attempting the assigned task. Do not let
+a well-organized unrelated repository "average out" to a moderate
+or high score.
+
 ${
   hasChecklist
     ? `==================================================
@@ -1053,6 +1098,52 @@ Before returning JSON, verify:
       throw new Error(
         'AI did not return every rubric criterion'
       );
+    }
+
+    // ---------------------------------------------------------
+    // 7b. Enforce the PROJECT RELEVANCE CHECK server-side.
+    //
+    // The prompt instructs Gemini to near-zero every criterion when
+    // meets_description is "no", but that instruction lived ONLY in
+    // the prompt text with nothing in code actually enforcing it —
+    // if the model didn't apply it correctly, an unrelated repo
+    // could still get whatever score the model happened to give the
+    // individual criteria (e.g. a well-structured but completely
+    // off-topic project scoring 85). We now enforce the same rule
+    // mechanically here, instead of only trusting the model to
+    // follow it.
+    // ---------------------------------------------------------
+
+    const meetsDescription =
+      typeof aiResult.meets_description === 'string'
+        ? aiResult.meets_description.trim().toLowerCase()
+        : '';
+
+    if (!['yes', 'partial', 'no'].includes(meetsDescription)) {
+      throw new Error(
+        `AI did not return a valid meets_description value (got: ${JSON.stringify(
+          aiResult.meets_description
+        )}). Refusing to trust an unenforced relevance check.`
+      );
+    }
+
+    aiResult.meets_description = meetsDescription;
+
+    if (meetsDescription === 'no') {
+      for (const cs of aiResult.criteria_scores) {
+        const criterion = criteriaById.get(Number(cs.criteria_id));
+        const cap = Number(criterion.max_score) * 0.1;
+
+        if (Number(cs.score) > cap) {
+          console.warn(
+            `[AI Service] Submission ${submissionId}: meets_description="no" but ` +
+              `criterion ${cs.criteria_id} scored ${cs.score}/${criterion.max_score} ` +
+              `(above the ${cap} cap). Clamping — the repository does not match the assignment.`
+          );
+
+          cs.score = cap;
+        }
+      }
     }
 
     aiResult.total_score =

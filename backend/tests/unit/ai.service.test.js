@@ -75,8 +75,7 @@ function createSuccessfulAiResponse() {
   return {
     total_score: 15,
 
-    meets_description:
-      'The student completed the assignment requirements.',
+    meets_description: 'yes',
 
     strengths:
       'Good implementation.',
@@ -896,6 +895,88 @@ describe(
 
     // ========================================================
     // SCORE ABOVE MAX
+    // ========================================================
+
+    // ========================================================
+    // PROJECT RELEVANCE CHECK ("meets_description")
+    // ========================================================
+
+    it(
+      'clamps every criterion score when meets_description is "no"',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.meets_description = 'no'
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        // An unrelated-but-clean repo must not "average out" to a
+        // moderate/high score just because the model scored the
+        // individual (irrelevant) criteria generously.
+        const call =
+          mockQuery.mock.calls.find(
+            ([sql]) =>
+              sql.includes(
+                'INSERT INTO ai_evaluations'
+              )
+          )
+
+        expect(call).toBeDefined()
+
+        // Both criteria have max_score 10, so the 10% cap is 1 each
+        // -> total_score must be clamped to 2, not the raw 15.
+        expect(call[1][1]).toBe(2)
+
+        expect(
+          mockCommit
+        ).toHaveBeenCalledTimes(1)
+
+        expect(
+          mockRollback
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    it(
+      'rejects an unrecognized meets_description value instead of trusting it',
+      async () => {
+
+        const response =
+          createSuccessfulAiResponse()
+
+        response.meets_description =
+          'The student completed the assignment requirements.'
+
+        mockGenerateContent.mockResolvedValue({
+          text: JSON.stringify(response),
+        })
+
+        await analyzeSubmissionWithGemini(
+          100,
+          'test-owner',
+          'test-repo',
+          'main'
+        )
+
+        expect(
+          mockCommit
+        ).not.toHaveBeenCalled()
+      }
+    )
+
+    // ========================================================
+    // REJECTS SCORE ABOVE MAX
     // ========================================================
 
     it(
