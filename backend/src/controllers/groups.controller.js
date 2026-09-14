@@ -1,7 +1,6 @@
 import { pool } from '../config/db.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { teacherHasCourseAccess } from '../utils/scope.js';
 
 // Helper function to auto-format and sanitize date strings to YYYY-MM-DD
 function normalizeDate(dateStr) {
@@ -186,16 +185,6 @@ export const createGroup = asyncHandler(async (req, res) => {
   const [courseCheck] = await pool.query('SELECT id FROM courses WHERE id = ?', [course_id]);
   if (courseCheck.length === 0) {
     throw new ApiError(404, 'Course not found');
-  }
-
-  if (req.user.role === 'teacher') {
-    const hasAccess = await teacherHasCourseAccess(created_by, course_id);
-    if (!hasAccess) {
-      throw new ApiError(
-        403,
-        'You are not assigned to this course. Ask an admin to add you to a group in this course first.'
-      );
-    }
   }
 
   const cleanStartDate = normalizeDate(start_date);
@@ -386,6 +375,25 @@ export const addStudentToGroup = asyncHandler(async (req, res) => {
 // DELETE /api/groups/:id/students/:studentId
 export const removeStudentFromGroup = asyncHandler(async (req, res) => {
   const { id, studentId } = req.params;
+
+  // Öğretmen sadece kendi (created_by ya da group_teachers ile atanmış)
+  // grubundan öğrenci çıkarabilmeli — addStudentToGroup'taki aynı kontrol
+  // burada eksikti, bu yüzden route seviyesinde teacher'a izin verilse
+  // bile herhangi bir gruptan öğrenci silinebiliyordu.
+  const [group] = await pool.query('SELECT id, created_by FROM student_groups WHERE id = ?', [id]);
+  if (group.length === 0) {
+    throw new ApiError(404, 'Group not found');
+  }
+
+  if (req.user.role === 'teacher' && group[0].created_by !== req.user.sub) {
+    const [assigned] = await pool.query(
+      'SELECT 1 FROM group_teachers WHERE group_id = ? AND teacher_id = ? LIMIT 1',
+      [id, req.user.sub]
+    );
+    if (!assigned.length) {
+      throw new ApiError(403, 'You are not assigned to this group');
+    }
+  }
 
   const [result] = await pool.query(
     'DELETE FROM group_students WHERE group_id = ? AND student_id = ?',

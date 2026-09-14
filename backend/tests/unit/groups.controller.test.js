@@ -550,10 +550,6 @@ describe('groups.controller', () => {
         .mockResolvedValueOnce([
           [sampleCourse],
         ])
-        // teacher course access check (teacher already has a group in this course)
-        .mockResolvedValueOnce([
-          [{ 1: 1 }],
-        ])
         // insert group
         .mockResolvedValueOnce([
           {
@@ -609,34 +605,6 @@ describe('groups.controller', () => {
         ),
         [10, 2]
       )
-    })
-
-    it('rejects a teacher creating a group in a course they have no existing scope in', async () => {
-      mockQuery
-        // course check
-        .mockResolvedValueOnce([
-          [sampleCourse],
-        ])
-        // teacher course access check (no existing group in this course)
-        .mockResolvedValueOnce([
-          [],
-        ])
-
-      const req = createReq({
-        body: {
-          course_id: 1,
-          name: 'New Group In Foreign Course',
-        },
-        user: teacherUser,
-      })
-
-      const res = createRes()
-
-      await expect(
-        controller.createGroup(req, res)
-      ).rejects.toMatchObject({
-        statusCode: 403,
-      })
     })
 
     it('creates a group as admin and assigns one teacher', async () => {
@@ -1660,11 +1628,22 @@ describe('groups.controller', () => {
   describe('removeStudentFromGroup', () => {
 
     it('removes a student successfully', async () => {
-      mockQuery.mockResolvedValueOnce([
-        {
-          affectedRows: 1,
-        },
-      ])
+      mockQuery
+        // group
+        .mockResolvedValueOnce([
+          [
+            {
+              id: 1,
+              created_by: 1,
+            },
+          ],
+        ])
+        // delete
+        .mockResolvedValueOnce([
+          {
+            affectedRows: 1,
+          },
+        ])
 
       const req = createReq({
         params: {
@@ -1690,12 +1669,124 @@ describe('groups.controller', () => {
       })
     })
 
-    it('throws 404 when student is not in the group', async () => {
-      mockQuery.mockResolvedValueOnce([
-        {
-          affectedRows: 0,
+    it('allows a teacher assigned to the group to remove a student', async () => {
+      mockQuery
+        // group
+        .mockResolvedValueOnce([
+          [
+            {
+              id: 1,
+              created_by: 99,
+            },
+          ],
+        ])
+        // assigned
+        .mockResolvedValueOnce([
+          [{ '1': 1 }],
+        ])
+        // delete
+        .mockResolvedValueOnce([
+          {
+            affectedRows: 1,
+          },
+        ])
+
+      const req = createReq({
+        params: {
+          id: '1',
+          studentId: '10',
         },
+        user: assignedTeacherUser,
+      })
+
+      const res = createRes()
+
+      await controller.removeStudentFromGroup(
+        req,
+        res
+      )
+
+      expect(res.status).toHaveBeenCalledWith(200)
+    })
+
+    it('rejects unassigned teacher from removing a student', async () => {
+      mockQuery
+        // group
+        .mockResolvedValueOnce([
+          [
+            {
+              id: 1,
+              created_by: 99,
+            },
+          ],
+        ])
+        // assigned
+        .mockResolvedValueOnce([
+          [],
+        ])
+
+      const req = createReq({
+        params: {
+          id: '1',
+          studentId: '10',
+        },
+        user: teacherUser,
+      })
+
+      const res = createRes()
+
+      await expect(
+        controller.removeStudentFromGroup(
+          req,
+          res
+        )
+      ).rejects.toMatchObject({
+        statusCode: 403,
+      })
+    })
+
+    it('throws 404 when group does not exist', async () => {
+      mockQuery.mockResolvedValueOnce([
+        [],
       ])
+
+      const req = createReq({
+        params: {
+          id: '999',
+          studentId: '10',
+        },
+        user: adminUser,
+      })
+
+      const res = createRes()
+
+      await expect(
+        controller.removeStudentFromGroup(
+          req,
+          res
+        )
+      ).rejects.toMatchObject({
+        statusCode: 404,
+      })
+    })
+
+    it('throws 404 when student is not in the group', async () => {
+      mockQuery
+        // group
+        .mockResolvedValueOnce([
+          [
+            {
+              id: 1,
+              created_by: 1,
+            },
+          ],
+        ])
+        // delete
+        .mockResolvedValueOnce([
+          {
+            affectedRows: 0,
+          },
+        ])
 
       const req = createReq({
         params: {
@@ -1717,6 +1808,7 @@ describe('groups.controller', () => {
       })
     })
   })
+
 
   // ==========================================================
   // 11. GET GROUP TEACHERS

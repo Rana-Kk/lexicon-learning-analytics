@@ -69,7 +69,7 @@ router.post(
 
 router.delete(
   '/:id/students/:studentId',
-  authorize('admin'),
+  authorize('admin', 'teacher'),
   removeStudentFromGroup
 );
 
