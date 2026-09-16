@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { User } from './types'
-import { logout as clearSession, getMyTeam } from './lib/api'
+import { logout as clearSession, getGroups } from './lib/api'
 
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
@@ -111,14 +111,14 @@ function StudentShell({ user, onLogout, onUpdateUser }: { user: User; onLogout: 
   const [groupName, setGroupName] = useState<string | undefined>()
 
   useEffect(() => {
-    getMyTeam()
-      .then((response) => {
-        setGroupName(response.data?.[0]?.group_name)
-      })
-      .catch((err) => {
-        console.error('Could not load group name:', err)
-      })
-  }, [])
+  getGroups()
+    .then((response) => {
+      setGroupName(response.data?.[0]?.course_name)
+    })
+    .catch((err) => {
+      console.error('Could not load group name:', err)
+    })
+}, [])
 
   const nav = (p: StudentPage, assessmentId?: number) => {
     setShowProfile(false)
