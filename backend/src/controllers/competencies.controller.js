@@ -15,59 +15,71 @@ export const createCompetency = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'name is required');
   }
 
+  if (!group_id) {
+    throw new ApiError(400, 'group_id is required');
+  }
+
   if (
     req.user.role === 'teacher' &&
-    group_id &&
     !(await teacherOwnsGroup(req.user.sub, group_id))
   ) {
     throw new ApiError(403, 'You do not have access to this group');
   }
 
-  if (group_id) {
-    const [group] = await pool.query(
-      'SELECT id FROM student_groups WHERE id = ?',
-      [group_id]
-    );
+  const [group] = await pool.query(
+    'SELECT id, course_id FROM student_groups WHERE id = ?',
+    [group_id]
+  );
 
-    if (!group.length) {
-      throw new ApiError(404, 'Group not found');
-    }
+  if (!group.length) {
+    throw new ApiError(404, 'Group not found');
   }
+
+  const courseId = group[0].course_id;
+  const cleanName = name.trim();
 
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const [result] = await conn.query(
-      `INSERT INTO competencies (name, description)
-       VALUES (?, ?)`,
-      [name.trim(), description?.trim() || null]
+    // Bu course'da aynı isimde competency zaten var mı?
+    const [existing] = await conn.query(
+      `SELECT id, name, description FROM competencies
+       WHERE course_id = ? AND name = ?`,
+      [courseId, cleanName]
     );
 
-    const competencyId = result.insertId;
+    let competencyId;
+    let competencyRow;
 
-    if (group_id) {
-      await conn.query(
-        `INSERT INTO group_competencies (group_id, competency_id)
-         VALUES (?, ?)
-         ON DUPLICATE KEY UPDATE competency_id = competency_id`,
-        [group_id, competencyId]
+    if (existing.length) {
+      // Varsa yeni satır oluşturma, mevcut olanı kullan
+      competencyId = existing[0].id;
+      competencyRow = existing[0];
+    } else {
+      const [result] = await conn.query(
+        `INSERT INTO competencies (course_id, name, description)
+         VALUES (?, ?, ?)`,
+        [courseId, cleanName, description?.trim() || null]
       );
+      competencyId = result.insertId;
+      competencyRow = { id: competencyId, name: cleanName, description: description?.trim() || null };
     }
+
+    // Bu group'a bağla (zaten bağlıysa no-op)
+    await conn.query(
+      `INSERT INTO group_competencies (group_id, competency_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE competency_id = competency_id`,
+      [group_id, competencyId]
+    );
 
     await conn.commit();
 
-    const [rows] = await pool.query(
-      `SELECT id, name, description
-       FROM competencies
-       WHERE id = ?`,
-      [competencyId]
-    );
-
     res.status(201).json({
       success: true,
-      data: rows[0]
+      data: competencyRow
     });
 
   } catch (error) {
