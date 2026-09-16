@@ -12,7 +12,10 @@ import {
   saveCompetency,
   getGroupCompetencies,
   createCompetency,
-  deleteGroupCompetency
+  deleteGroupCompetency,
+  updateCompetency,
+  upsertGroupCompetencyOverride,
+  removeGroupCompetencyOverride
 } from '../../lib/api'
 
 type Group = {
@@ -40,6 +43,10 @@ type GroupCompetency = {
   id: number
   name: string
   description?: string | null
+  course_default_name?: string
+  course_default_description?: string | null
+  course_id?: number
+  is_overridden?: boolean | number
 }
 
 export default function TeacherCompetency() {
@@ -85,6 +92,23 @@ export default function TeacherCompetency() {
     newCompetencyDescription,
     setNewCompetencyDescription
   ] = useState('')
+
+  // Hangi competency şu an düzenleniyor: 'group' -> sadece bu grup için override,
+  // 'course' -> kurs geneli (override yapmamış tüm grupları etkiler)
+  const [editingId, setEditingId] =
+    useState<number | null>(null)
+
+  const [editingScope, setEditingScope] =
+    useState<'group' | 'course' | null>(null)
+
+  const [editName, setEditName] =
+    useState('')
+
+  const [editDescription, setEditDescription] =
+    useState('')
+
+  const [editSaving, setEditSaving] =
+    useState(false)
 
   const [error, setError] =
     useState('')
@@ -220,6 +244,12 @@ export default function TeacherCompetency() {
         name: gc.name,
         description:
           gc.description || '',
+        course_default_name:
+          gc.course_default_name || gc.name,
+        course_default_description:
+          gc.course_default_description || '',
+        is_overridden:
+          Boolean(gc.is_overridden),
         score: existing?.score ?? 0,
         trend:
           existing?.trend ?? 'stable'
@@ -317,6 +347,172 @@ export default function TeacherCompetency() {
     }
   }
 
+  function startEditing(
+    row: {
+      competency_id: number
+      name: string
+      description: string
+      course_default_name: string
+      course_default_description: string
+    },
+    scope: 'group' | 'course'
+  ) {
+    setEditingId(row.competency_id)
+    setEditingScope(scope)
+    setError('')
+    setSuccess('')
+
+    if (scope === 'group') {
+      // Override formu, o an gösterilen (override edilmişse override, edilmemişse course default) değerle başlasın
+      setEditName(row.name)
+      setEditDescription(row.description)
+    } else {
+      // Course formu her zaman course default değeriyle başlasın
+      setEditName(row.course_default_name)
+      setEditDescription(row.course_default_description)
+    }
+  }
+
+  function cancelEditing() {
+    setEditingId(null)
+    setEditingScope(null)
+    setEditName('')
+    setEditDescription('')
+  }
+
+  async function handleSaveOverride(
+    competencyId: number
+  ) {
+    if (!groupId) return
+
+    const name = editName.trim()
+
+    if (!name) {
+      setError('Name is required')
+      return
+    }
+
+    try {
+      setEditSaving(true)
+      setError('')
+      setSuccess('')
+
+      await upsertGroupCompetencyOverride(
+        groupId,
+        competencyId,
+        {
+          name,
+          description: editDescription.trim()
+        }
+      )
+
+      await loadGroupCompetencies(groupId)
+
+      if (studentId) {
+        await loadCompetencies(studentId)
+      }
+
+      setSuccess(
+        'Saved — this change only applies to this group.'
+      )
+
+      cancelEditing()
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : 'Could not save override'
+      )
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  async function handleSaveCourseDefault(
+    competencyId: number
+  ) {
+    const name = editName.trim()
+
+    if (!name) {
+      setError('Name is required')
+      return
+    }
+
+    try {
+      setEditSaving(true)
+      setError('')
+      setSuccess('')
+
+      await updateCompetency(
+        competencyId,
+        {
+          name,
+          description: editDescription.trim()
+        }
+      )
+
+      if (groupId) {
+        await loadGroupCompetencies(groupId)
+      }
+
+      if (studentId) {
+        await loadCompetencies(studentId)
+      }
+
+      setSuccess(
+        'Saved — this change applies to every group using this competency (unless a group has its own override).'
+      )
+
+      cancelEditing()
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : 'Could not save course default'
+      )
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  async function handleRevertToDefault(
+    competencyId: number
+  ) {
+    if (!groupId) return
+
+    const confirmed = window.confirm(
+      'Revert this competency to the course default for this group?'
+    )
+
+    if (!confirmed) return
+
+    try {
+      setError('')
+      setSuccess('')
+
+      await removeGroupCompetencyOverride(
+        groupId,
+        competencyId
+      )
+
+      await loadGroupCompetencies(groupId)
+
+      if (studentId) {
+        await loadCompetencies(studentId)
+      }
+
+      setSuccess(
+        'Reverted to the course default for this group.'
+      )
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : 'Could not revert to default'
+      )
+    }
+  }
+
   async function saveAll() {
     if (!studentId) return
 
@@ -392,8 +588,11 @@ export default function TeacherCompetency() {
               'var(--muted-foreground)'
           }}
         >
-          Define and assess competencies
-          for each assigned group.
+          Competencies are shared across
+          every group in a course. Overriding
+          one here only affects this group;
+          editing the course default updates
+          every group that hasn't overridden it.
         </p>
       </div>
 
@@ -460,11 +659,12 @@ export default function TeacherCompetency() {
 
               <select
                 value={groupId ?? ''}
-                onChange={e =>
+                onChange={e => {
+                  cancelEditing()
                   setGroupId(
                     Number(e.target.value)
                   )
-                }
+                }}
                 className="w-full px-3 py-2.5 rounded-lg text-sm"
                 style={{
                   border:
@@ -548,7 +748,7 @@ export default function TeacherCompetency() {
             <div className="mb-4">
               <h2 className="text-sm font-semibold">
                 Competencies for{' '}
-                {selectedGroup?.name || 'this group'}
+                {selectedGroup?.course_name || selectedGroup?.name || 'this group'}
               </h2>
 
               <p
@@ -558,9 +758,11 @@ export default function TeacherCompetency() {
                     'var(--muted-foreground)'
                 }}
               >
-                Add competencies specifically
-                for this group. You are not
-                limited to predefined competencies.
+                If a competency with this name
+                already exists for the course,
+                it will be reused and just
+                assigned to this group. New names
+                create a new course-wide competency.
               </p>
             </div>
 
@@ -718,90 +920,234 @@ export default function TeacherCompetency() {
 
                 ) : (
 
-                  rows.map((c, i) => (
+                  rows.map((c, i) => {
+                    const isEditingThis =
+                      editingId === c.competency_id
 
-                    <tr
-                      key={c.competency_id}
-                      style={{
-                        borderBottom:
-                          i < rows.length - 1
-                            ? '1px solid var(--border)'
-                            : 'none'
-                      }}
-                    >
-                      <td className="px-4 py-4">
-                        <p className="text-sm font-semibold">
-                          {c.name}
-                        </p>
-                      </td>
-
-                      <td
-                        className="px-4 py-4 text-xs"
+                    return (
+                      <tr
+                        key={c.competency_id}
                         style={{
-                          color:
-                            'var(--muted-foreground)'
+                          borderBottom:
+                            i < rows.length - 1
+                              ? '1px solid var(--border)'
+                              : 'none'
                         }}
                       >
-                        {c.description || '—'}
-                      </td>
+                        <td className="px-4 py-4 align-top">
+                          {isEditingThis ? (
+                            <input
+                              value={editName}
+                              onChange={e =>
+                                setEditName(e.target.value)
+                              }
+                              className="w-full px-2 py-1.5 rounded-lg text-sm mb-1"
+                              style={{
+                                border: '1px solid var(--border)',
+                                outline: 'none'
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <p className="text-sm font-semibold">
+                                {c.name}
+                              </p>
 
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
+                              {c.is_overridden && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded mt-1 inline-block"
+                                  style={{
+                                    background: '#DBEAFE',
+                                    color: '#1D4ED8'
+                                  }}
+                                >
+                                  Custom for this group
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </td>
 
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={
-                              scores[c.competency_id] ??
-                              String(c.score)
-                            }
-                            onChange={e =>
-                              setScores(prev => ({
-                                ...prev,
-                                [c.competency_id]:
-                                  e.target.value
-                              }))
-                            }
-                            className="w-20 px-2 py-1.5 rounded-lg text-sm"
-                            style={{
-                              border:
-                                '1px solid var(--border)',
-                              outline: 'none'
-                            }}
-                          />
-
-                          <span className="text-xs">
-                            / 100
-                          </span>
-
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleDeleteCompetency(
-                              c.competency_id
-                            )
-                          }
-                          className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                        <td
+                          className="px-4 py-4 text-xs align-top"
                           style={{
-                            background:
-                              '#FEE2E2',
                             color:
-                              '#B91C1C',
-                            border:
-                              '1px solid #FECACA'
+                              'var(--muted-foreground)'
                           }}
                         >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
+                          {isEditingThis ? (
+                            <input
+                              value={editDescription}
+                              onChange={e =>
+                                setEditDescription(e.target.value)
+                              }
+                              className="w-full px-2 py-1.5 rounded-lg text-sm"
+                              style={{
+                                border: '1px solid var(--border)',
+                                outline: 'none'
+                              }}
+                            />
+                          ) : (
+                            c.description || '—'
+                          )}
+                        </td>
 
-                  ))
+                        <td className="px-4 py-4 align-top">
+                          <div className="flex items-center gap-2">
+
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={
+                                scores[c.competency_id] ??
+                                String(c.score)
+                              }
+                              onChange={e =>
+                                setScores(prev => ({
+                                  ...prev,
+                                  [c.competency_id]:
+                                    e.target.value
+                                }))
+                              }
+                              className="w-20 px-2 py-1.5 rounded-lg text-sm"
+                              style={{
+                                border:
+                                  '1px solid var(--border)',
+                                outline: 'none'
+                              }}
+                            />
+
+                            <span className="text-xs">
+                              / 100
+                            </span>
+
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top">
+                          {isEditingThis ? (
+                            <div className="flex flex-col gap-1.5 items-start">
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={editSaving}
+                                  onClick={() =>
+                                    editingScope === 'course'
+                                      ? handleSaveCourseDefault(c.competency_id)
+                                      : handleSaveOverride(c.competency_id)
+                                  }
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                                  style={{
+                                    background: 'var(--primary)',
+                                    color: 'white',
+                                    border: 'none',
+                                    opacity: editSaving ? 0.6 : 1
+                                  }}
+                                >
+                                  {editSaving
+                                    ? 'Saving…'
+                                    : editingScope === 'course'
+                                    ? 'Save for all groups'
+                                    : 'Save for this group'}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={cancelEditing}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                                  style={{
+                                    background: 'var(--muted)',
+                                    border: '1px solid var(--border)'
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+
+                              <span
+                                className="text-[10px]"
+                                style={{ color: 'var(--muted-foreground)' }}
+                              >
+                                {editingScope === 'course'
+                                  ? 'Applies to every group without its own override.'
+                                  : 'Only applies to this group.'}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  startEditing(c, 'group')
+                                }
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                                style={{
+                                  background: '#DBEAFE',
+                                  color: '#1D4ED8',
+                                  border: '1px solid #BFDBFE'
+                                }}
+                              >
+                                Override
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  startEditing(c, 'course')
+                                }
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                                style={{
+                                  background: '#F3E8FF',
+                                  color: '#7E22CE',
+                                  border: '1px solid #E9D5FF'
+                                }}
+                              >
+                                Edit course default
+                              </button>
+
+                              {c.is_overridden && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRevertToDefault(c.competency_id)
+                                  }
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                                  style={{
+                                    background: '#FEF3C7',
+                                    color: '#92400E',
+                                    border: '1px solid #FDE68A'
+                                  }}
+                                >
+                                  Revert to default
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDeleteCompetency(
+                                    c.competency_id
+                                  )
+                                }
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg"
+                                style={{
+                                  background:
+                                    '#FEE2E2',
+                                  color:
+                                    '#B91C1C',
+                                  border:
+                                    '1px solid #FECACA'
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })
 
                 )}
 

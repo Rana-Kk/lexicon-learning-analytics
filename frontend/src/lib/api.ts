@@ -754,7 +754,43 @@ export const deleteGroupCompetency = (
       method: 'DELETE'
     }
   )
+export const getCourseCompetencies = (
+  courseId: number | string
+) =>
+  apiFetch(`/competencies/course/${courseId}`)
 
+export const updateCompetency = (
+  competencyId: number | string,
+  data: { name?: string; description?: string }
+) =>
+  apiFetch(`/competencies/${competencyId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  })
+
+export const upsertGroupCompetencyOverride = (
+  groupId: number | string,
+  competencyId: number | string,
+  data: { name?: string; description?: string }
+) =>
+  apiFetch(
+    `/competencies/group/${groupId}/${competencyId}/override`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }
+  )
+
+export const removeGroupCompetencyOverride = (
+  groupId: number | string,
+  competencyId: number | string
+) =>
+  apiFetch(
+    `/competencies/group/${groupId}/${competencyId}/override`,
+    {
+      method: 'DELETE'
+    }
+  )
 /* =========================
    FEEDBACK
 ========================= */
