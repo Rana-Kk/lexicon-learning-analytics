@@ -58,6 +58,19 @@ function normalizeDate(dateStr) {
   return null;
 }
 export const getAllCourses = asyncHandler(async (req, res) => {
+  if (req.user.role === 'teacher') {
+    const [courses] = await pool.query(
+      `SELECT DISTINCT c.*
+         FROM courses c
+         JOIN student_groups sg ON sg.course_id = c.id
+         JOIN group_teachers gt ON gt.group_id = sg.id
+        WHERE gt.teacher_id = ?
+        ORDER BY c.id DESC`,
+      [req.user.sub]
+    );
+    return res.status(200).json({ success: true, count: courses.length, data: courses });
+  }
+
   const [courses] = await pool.query('SELECT * FROM courses ORDER BY id DESC');
   res.status(200).json({ success: true, count: courses.length, data: courses });
 });
@@ -70,6 +83,20 @@ export const getCourseById = asyncHandler(async (req, res) => {
 
   if (course.length === 0) {
     throw new ApiError(404, 'Course not found');
+  }
+
+  if (req.user.role === 'teacher') {
+    const [owns] = await pool.query(
+      `SELECT 1
+         FROM student_groups sg
+         JOIN group_teachers gt ON gt.group_id = sg.id
+        WHERE sg.course_id = ? AND gt.teacher_id = ?
+        LIMIT 1`,
+      [id, req.user.sub]
+    );
+    if (!owns.length) {
+      throw new ApiError(403, 'You do not have access to this course');
+    }
   }
 
   res.status(200).json({ success: true, data: course[0] });
