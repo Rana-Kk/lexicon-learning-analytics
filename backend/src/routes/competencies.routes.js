@@ -1,10 +1,11 @@
-import { Router } from 'express';
-import { authenticate, authorize } from '../middleware/auth.js';
 import {
   listCompetencies,
   createCompetency,
   updateCompetency,
+  deleteCompetency,
   getCourseCompetencies,
+  getCompetencyGroups,
+  syncCompetencyGroups,
   getStudentCompetencies,
   upsertStudentCompetency,
   getCompetencyHistory,
@@ -14,7 +15,6 @@ import {
   upsertGroupCompetencyOverride,
   removeGroupCompetencyOverride,
 } from '../controllers/competencies.controller.js';
-
 const r = Router();
 r.use(authenticate);
 
