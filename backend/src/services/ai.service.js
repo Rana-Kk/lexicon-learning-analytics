@@ -529,7 +529,9 @@ GRADING PHILOSOPHY
 This evaluation is FORMATIVE. Its purpose is to help the student see
 where to improve next — it is NOT shown to the student as a final
 verdict, and it should not be optimized for the lowest defensible
-score. Apply this mindset to every criterion:
+score. Apply this mindset to RUBRIC scoring only (see the
+CHECKLIST IS FACTUAL, NOT FORMATIVE note below for why the checklist
+is excluded):
 
 1. Reserve low scores for criteria where the actual requirement is
    substantially or functionally unmet. Do not reserve them for
@@ -609,6 +611,28 @@ total_score is computed ONLY from the RUBRIC above.
 - The checklist exists purely so the supervisor/teacher can see
   informational pass/fail and progress data — it is never part
   of the student's grade.
+
+IMPORTANT — CHECKLIST IS FACTUAL, NOT FORMATIVE:
+
+The GRADING PHILOSOPHY section above (generosity, benefit-of-the-doubt,
+favoring the more generous plausible score) applies ONLY to RUBRIC
+scoring. It does NOT apply here.
+
+- For "yes_no" items: answer true ONLY if the exact behavior is
+  verifiably present in the source code. If a requirement has
+  multiple named sub-parts (e.g. "search by name or category",
+  "add/edit/delete products"), it is true only if EVERY named
+  sub-part is implemented. A partially implemented feature (e.g.
+  search works by name but not by category) must be answered
+  false, with the specific missing sub-part named in "feedback".
+- For "score" items: score strictly on verified evidence, not on
+  generosity or benefit-of-the-doubt.
+- Do not count a constructor as a "method" or "function" unless the
+  checklist item explicitly says otherwise — only count code the
+  student wrote as a distinct, callable method/function outside of
+  constructors.
+- When uncertain between true/false, answer false and explain the
+  uncertainty in "feedback" rather than defaulting to true.
 
 ${JSON.stringify(checklistCriteria, null, 2)}
 `
@@ -749,9 +773,11 @@ EVALUATION RULES
 
 21. Do not claim functionality works unless the source evidence supports it.
 
-22. Follow the GRADING PHILOSOPHY above: do not let cosmetic or
-    trivial issues drive down a score for a criterion whose actual
-    requirement is met.
+22. Follow the GRADING PHILOSOPHY above for RUBRIC scoring: do not let
+    cosmetic or trivial issues drive down a rubric score for a
+    criterion whose actual requirement is met. This generosity rule
+    does NOT apply to the SUPERVISOR CHECKLIST — see CHECKLIST IS
+    FACTUAL, NOT FORMATIVE above.
 
 ==================================================
 TESTING-SPECIFIC RULES
@@ -816,8 +842,10 @@ CHECKLIST RULES
 ==================================================
 
 Evaluate every item in SUPERVISOR CHECKLIST independently, using
-the same repository evidence rules as above (only claim what the
-source code / file list actually shows).
+the same repository evidence rules as above for what counts as
+verified evidence (file existence, actual source code content) —
+but NOT the GRADING PHILOSOPHY generosity rules, which apply only
+to rubric scoring (see CHECKLIST IS FACTUAL, NOT FORMATIVE above).
 
 For each checklist item, return one object in "checklist_results":
 
@@ -836,7 +864,8 @@ other two value fields null:
 - "text" item    -> set text_value, leave yes_no_value and score_value null
 
 "feedback" is always required: a short (one sentence) note citing
-the evidence for your answer.
+the evidence for your answer. For "yes_no" items answered false due
+to a partially met requirement, name the specific missing sub-part.
 
 checklist_criterion_id MUST match an actual id from SUPERVISOR CHECKLIST.
 
@@ -944,6 +973,9 @@ Before returning JSON, verify:
 - No score was reduced for a cosmetic/trivial issue on a criterion
   whose actual requirement is met.
 - No file was scored down merely for being length-truncated.
+- No checklist "yes_no" item was answered true based on generosity
+  rather than verified evidence; multi-part requirements were
+  checked sub-part by sub-part.
 - Competency suggestions use valid competency IDs.${
   hasChecklist
     ? '\n- Every checklist criterion appears exactly once, with only the matching value field filled in.'

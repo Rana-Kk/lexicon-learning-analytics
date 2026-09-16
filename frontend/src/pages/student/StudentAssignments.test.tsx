@@ -14,8 +14,6 @@ vi.mock('../../lib/api', async () => {
 
 const mockedGetStudentAssessments = vi.mocked(getStudentAssessments)
 
-// Testin her çalıştırıldığında geçerli kalması için "bugünden 30 gün sonrası"
-// olarak hesaplanıyor; sabit bir tarih ileride geçmişte kalıp testi kırardı.
 function futureDateString(daysFromNow: number) {
   const d = new Date()
   d.setDate(d.getDate() + daysFromNow)
