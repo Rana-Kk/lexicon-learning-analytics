@@ -27,15 +27,16 @@ r.get('/me', getStudentCompetencies);
 r.put('/student', authorize('admin', 'teacher'), upsertStudentCompetency);
 
 // Course-level master competency list + edit (affects every group without its own override)
-r.get('/course/:courseId', authorize('admin', 'teacher'), getCourseCompetencies);
-r.put('/:competencyId', authorize('admin', 'teacher'), updateCompetency);
 
 r.get('/group/:groupId', authorize('admin', 'teacher'), getGroupCompetencies);
 r.post('/group', authorize('admin', 'teacher'), addGroupCompetency);
 r.delete('/group/:groupId/:competencyId', authorize('admin', 'teacher'), removeGroupCompetency);
-
-// Per-group override (only affects this one group)
 r.put('/group/:groupId/:competencyId/override', authorize('admin', 'teacher'), upsertGroupCompetencyOverride);
 r.delete('/group/:groupId/:competencyId/override', authorize('admin', 'teacher'), removeGroupCompetencyOverride);
 
+// course-level master
+r.get('/:competencyId/groups', authorize('admin', 'teacher'), getCompetencyGroups);
+r.put('/:competencyId/groups', authorize('admin', 'teacher'), syncCompetencyGroups);
+r.put('/:competencyId', authorize('admin', 'teacher'), updateCompetency);
+r.delete('/:competencyId', authorize('admin', 'teacher'), deleteCompetency);
 export default r;

@@ -54,87 +54,85 @@ export const getCourseCompetencies = asyncHandler(async (req, res) => {
 });
 
 // POST /api/competencies
-// Bir group üzerinden çağrılır: course'da aynı isim varsa onu kullanır,
-// yoksa course'a yeni bir master competency oluşturur; sonra bu group'a bağlar.
+
 export const createCompetency = asyncHandler(async (req, res) => {
-  const { name, description, group_id } = req.body;
+  const { name, description, course_id, group_id, group_ids } = req.body;
 
-  if (!name || !name.trim()) {
-    throw new ApiError(400, 'name is required');
+  if (!name || !name.trim()) throw new ApiError(400, 'name is required');
+  if (!course_id && !group_id) {
+    throw new ApiError(400, 'course_id or group_id is required');
   }
 
-  if (!group_id) {
-    throw new ApiError(400, 'group_id is required');
+  let courseId = course_id;
+  let targetGroupIds = [];
+
+  if (group_id) {
+    if (req.user.role === 'teacher' && !(await teacherOwnsGroup(req.user.sub, group_id))) {
+      throw new ApiError(403, 'You do not have access to this group');
+    }
+    const [group] = await pool.query(
+      'SELECT id, course_id FROM student_groups WHERE id = ?', [group_id]
+    );
+    if (!group.length) throw new ApiError(404, 'Group not found');
+    courseId = group[0].course_id;
+    targetGroupIds = [Number(group_id)];
+  } else {
+    if (req.user.role === 'teacher' && !(await teacherOwnsCourse(req.user.sub, courseId))) {
+      throw new ApiError(403, 'You do not have access to this course');
+    }
+    if (group_ids === 'all') {
+      const [gs] = await pool.query(
+        'SELECT id FROM student_groups WHERE course_id = ?', [courseId]
+      );
+      targetGroupIds = gs.map((g) => g.id);
+    } else if (Array.isArray(group_ids)) {
+      targetGroupIds = group_ids.map(Number);
+    }
   }
 
-  if (
-    req.user.role === 'teacher' &&
-    !(await teacherOwnsGroup(req.user.sub, group_id))
-  ) {
-    throw new ApiError(403, 'You do not have access to this group');
-  }
-
-  const [group] = await pool.query(
-    'SELECT id, course_id FROM student_groups WHERE id = ?',
-    [group_id]
-  );
-
-  if (!group.length) {
-    throw new ApiError(404, 'Group not found');
-  }
-
-  const courseId = group[0].course_id;
   const cleanName = name.trim();
-
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    // Bu course'da aynı isimde competency zaten var mı?
     const [existing] = await conn.query(
       `SELECT id, course_id, name, description FROM competencies
-       WHERE course_id = ? AND name = ?`,
+        WHERE course_id = ? AND name = ?`,
       [courseId, cleanName]
     );
 
-    let competencyId;
     let competencyRow;
-
     if (existing.length) {
-      // Varsa yeni satır oluşturma, mevcut master'ı kullan
-      competencyId = existing[0].id;
       competencyRow = existing[0];
     } else {
       const [result] = await conn.query(
-        `INSERT INTO competencies (course_id, name, description)
-         VALUES (?, ?, ?)`,
+        `INSERT INTO competencies (course_id, name, description) VALUES (?, ?, ?)`,
         [courseId, cleanName, description?.trim() || null]
       );
-      competencyId = result.insertId;
       competencyRow = {
-        id: competencyId,
+        id: result.insertId,
         course_id: courseId,
         name: cleanName,
-        description: description?.trim() || null
+        description: description?.trim() || null,
       };
     }
 
-    // Bu group'a bağla (zaten bağlıysa no-op)
-    await conn.query(
-      `INSERT INTO group_competencies (group_id, competency_id)
-       VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE competency_id = competency_id`,
-      [group_id, competencyId]
-    );
+    if (targetGroupIds.length) {
+      const [valid] = await conn.query(
+        `SELECT id FROM student_groups WHERE course_id = ? AND id IN (?)`,
+        [courseId, targetGroupIds]
+      );
+      for (const g of valid) {
+        await conn.query(
+          `INSERT IGNORE INTO group_competencies (group_id, competency_id) VALUES (?, ?)`,
+          [g.id, competencyRow.id]
+        );
+      }
+    }
 
     await conn.commit();
-
-    res.status(201).json({
-      success: true,
-      data: competencyRow
-    });
-
+    res.status(201).json({ success: true, data: competencyRow });
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -144,7 +142,6 @@ export const createCompetency = asyncHandler(async (req, res) => {
 });
 
 // PUT /api/competencies/:competencyId
-// Course seviyesinde master'ı günceller — override yapmamış TÜM group'ları etkiler
 export const updateCompetency = asyncHandler(async (req, res) => {
   const { competencyId } = req.params;
   const { name, description } = req.body;
@@ -162,12 +159,17 @@ export const updateCompetency = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'You do not have access to this course');
   }
 
-  await pool.query(
+    await pool.query(
     `UPDATE competencies SET
-       name = COALESCE(?, name),
-       description = COALESCE(?, description)
+       name = IFNULL(?, name),
+       description = IF(? = 1, ?, description)
      WHERE id = ?`,
-    [name?.trim() || null, description?.trim() || null, competencyId]
+    [
+      name?.trim() || null,
+      description === undefined ? 0 : 1,
+      description?.trim() || null,
+      competencyId,
+    ]
   );
 
   const [rows] = await pool.query(
@@ -343,7 +345,6 @@ export const getGroupCompetencies = asyncHandler(async (req, res) => {
 });
 
 // POST /api/groups/:groupId/competencies (body: { competency_id })
-// Course'un mevcut bir master competency'sini bu group'a bağlar
 export const addGroupCompetency = asyncHandler(async (req, res) => {
   const { group_id, competency_id } = req.body;
 
@@ -380,7 +381,6 @@ export const addGroupCompetency = asyncHandler(async (req, res) => {
 });
 
 // DELETE /api/groups/:groupId/competencies/:competencyId
-// Bu group'un competency listesinden tamamen çıkarır (override da varsa cascade ile silinir)
 export const removeGroupCompetency = asyncHandler(async (req, res) => {
   const { groupId, competencyId } = req.params;
 
@@ -405,7 +405,6 @@ export const removeGroupCompetency = asyncHandler(async (req, res) => {
 });
 
 // PUT /api/groups/:groupId/competencies/:competencyId/override
-// Bu competency'yi SADECE bu group için özelleştirir; diğer group'ları etkilemez
 export const upsertGroupCompetencyOverride = asyncHandler(async (req, res) => {
   const { groupId, competencyId } = req.params;
   const { name, description } = req.body;
@@ -436,7 +435,6 @@ export const upsertGroupCompetencyOverride = asyncHandler(async (req, res) => {
 });
 
 // DELETE /api/groups/:groupId/competencies/:competencyId/override
-// Override'ı kaldırır, bu group course default'una geri döner
 export const removeGroupCompetencyOverride = asyncHandler(async (req, res) => {
   const { groupId, competencyId } = req.params;
 
@@ -453,4 +451,119 @@ export const removeGroupCompetencyOverride = asyncHandler(async (req, res) => {
   );
 
   res.json({ success: true, message: 'Reverted to course default' });
+});
+
+
+// DELETE /api/competencies/:competencyId
+export const deleteCompetency = asyncHandler(async (req, res) => {
+  const { competencyId } = req.params;
+
+  const [existing] = await pool.query(
+    'SELECT id, course_id FROM competencies WHERE id = ?', [competencyId]
+  );
+  if (!existing.length) throw new ApiError(404, 'Competency not found');
+
+  if (req.user.role === 'teacher' &&
+      !(await teacherOwnsCourse(req.user.sub, existing[0].course_id))) {
+    throw new ApiError(403, 'You do not have access to this course');
+  }
+
+  await pool.query('DELETE FROM competencies WHERE id = ?', [competencyId]);
+  res.json({ success: true, message: 'Competency deleted from course' });
+});
+
+// GET /api/competencies/:competencyId/groups
+export const getCompetencyGroups = asyncHandler(async (req, res) => {
+  const { competencyId } = req.params;
+
+  const [c] = await pool.query(
+    'SELECT id, course_id FROM competencies WHERE id = ?', [competencyId]
+  );
+  if (!c.length) throw new ApiError(404, 'Competency not found');
+
+  if (req.user.role === 'teacher' &&
+      !(await teacherOwnsCourse(req.user.sub, c[0].course_id))) {
+    throw new ApiError(403, 'You do not have access to this course');
+  }
+
+  const [rows] = await pool.query(
+    `SELECT sg.id, sg.name,
+            (gc.competency_id IS NOT NULL) AS assigned,
+            (gco.competency_id IS NOT NULL) AS is_overridden
+       FROM student_groups sg
+       LEFT JOIN group_competencies gc
+         ON gc.group_id = sg.id AND gc.competency_id = ?
+       LEFT JOIN group_competency_overrides gco
+         ON gco.group_id = sg.id AND gco.competency_id = ?
+      WHERE sg.course_id = ?
+      ORDER BY sg.name`,
+    [competencyId, competencyId, c[0].course_id]
+  );
+
+  res.json({ success: true, data: rows });
+});
+
+// PUT /api/competencies/:competencyId/groups  body: { group_ids: number[] }
+export const syncCompetencyGroups = asyncHandler(async (req, res) => {
+  const { competencyId } = req.params;
+  const { group_ids } = req.body;
+
+  if (!Array.isArray(group_ids)) {
+    throw new ApiError(400, 'group_ids must be an array');
+  }
+
+  const [c] = await pool.query(
+    'SELECT id, course_id FROM competencies WHERE id = ?', [competencyId]
+  );
+  if (!c.length) throw new ApiError(404, 'Competency not found');
+
+  if (req.user.role === 'teacher' &&
+      !(await teacherOwnsCourse(req.user.sub, c[0].course_id))) {
+    throw new ApiError(403, 'You do not have access to this course');
+  }
+
+  const courseId = c[0].course_id;
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    if (group_ids.length) {
+      const [valid] = await conn.query(
+        'SELECT id FROM student_groups WHERE course_id = ? AND id IN (?)',
+        [courseId, group_ids.map(Number)]
+      );
+      const ids = valid.map((g) => g.id);
+
+      await conn.query(
+        `DELETE gc FROM group_competencies gc
+           JOIN student_groups sg ON sg.id = gc.group_id
+          WHERE gc.competency_id = ? AND sg.course_id = ?
+            AND gc.group_id NOT IN (?)`,
+        [competencyId, courseId, ids.length ? ids : [0]]
+      );
+
+      for (const id of ids) {
+        await conn.query(
+          `INSERT IGNORE INTO group_competencies (group_id, competency_id) VALUES (?, ?)`,
+          [id, competencyId]
+        );
+      }
+    } else {
+      await conn.query(
+        `DELETE gc FROM group_competencies gc
+           JOIN student_groups sg ON sg.id = gc.group_id
+          WHERE gc.competency_id = ? AND sg.course_id = ?`,
+        [competencyId, courseId]
+      );
+    }
+
+    await conn.commit();
+    res.json({ success: true, message: 'Group assignments updated' });
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
 });

@@ -718,11 +718,28 @@ export const saveCompetency = (
 export const createCompetency = (data: {
   name: string
   description?: string
+  course_id?: number
   group_id?: number
+  group_ids?: number[] | 'all'
 }) =>
   apiFetch('/competencies', {
     method: 'POST',
     body: JSON.stringify(data)
+  })
+
+export const deleteCompetency = (competencyId: number | string) =>
+  apiFetch(`/competencies/${competencyId}`, { method: 'DELETE' })
+
+export const getCompetencyGroups = (competencyId: number | string) =>
+  apiFetch(`/competencies/${competencyId}/groups`)
+
+export const syncCompetencyGroups = (
+  competencyId: number | string,
+  group_ids: (number | string)[]
+) =>
+  apiFetch(`/competencies/${competencyId}/groups`, {
+    method: 'PUT',
+    body: JSON.stringify({ group_ids })
   })
   
 /* =========================
