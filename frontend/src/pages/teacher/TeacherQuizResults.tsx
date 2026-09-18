@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getQuizResults, getGroups, upsertQuizResult } from '../../lib/api'
+import { getQuizResults, getMyGroups, saveQuizResult } from '../../lib/api'
 import StatCard from '../../components/StatCard'
 import TeacherQuizImport from './TeacherQuizImport'
 import {
@@ -28,7 +28,7 @@ export default function TeacherQuizResults() {
   const loadGroups = async () => {
     try {
       setGroupsLoading(true)
-      const res = await getGroups()
+      const res = await getMyGroups()
       setGroups(res.data ?? [])
     } catch (err: any) {
       setError(err?.message || 'Could not load groups.')
@@ -77,7 +77,7 @@ export default function TeacherQuizResults() {
       setSavingEdit(true)
       setError('')
 
-      await upsertQuizResult({
+      await saveQuizResult({
         quiz_id: r.quiz_id,
         student_id: r.student_id,
         score: parsed,
@@ -174,7 +174,7 @@ export default function TeacherQuizResults() {
     }
   })
 
-  // Highest to lowest, used for both the comparison chart and the ranking lis
+  // Highest to lowest, used for both the comparison chart and the ranking list
   const rankedStudentAvgs = [...studentAvgs].sort((a, b) => b.avg - a.avg)
 
   const quizTitles = [
