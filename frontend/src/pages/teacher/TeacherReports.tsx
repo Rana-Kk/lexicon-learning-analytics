@@ -450,15 +450,14 @@ function buildPdf(
   // ============================================================
   // ASSIGNMENT CHECKLIST EVALUATIONS
   //
-  // Union table: assignments as rows, every distinct criterion
-  // across all assignments as its own column. The page has a
-  // fixed width (no scrolling in a PDF), so instead of dividing
-  // that fixed width evenly across however many criteria exist
-  // (which is what caused the squeezed, overlapping headers),
-  // we enforce a minimum readable column width and, based on the
-  // checklist length, automatically split the criteria into
-  // however many column "sets" are needed to fit — each set
-  // rendered as its own table.
+  // One horizontal table PER DISTINCT CHECKLIST: assignments that
+  // share the same set of criteria are grouped as rows in the
+  // same table; a different checklist gets its own separate
+  // table below it. Each table's columns are sized only from its
+  // own checklist's criteria count, with a minimum readable
+  // column width — if a single checklist still has more criteria
+  // than fit the page width, that one table is further split
+  // into column "sets" ("set 1 of 2", etc).
   // ============================================================
 
   if (
@@ -480,50 +479,87 @@ function buildPdf(
         'No assignment checklist evaluations.'
       )
     } else {
-      // ========================================================
-      // GET ALL UNIQUE CRITERIA
-      // ========================================================
-
-      const criteriaMap = new Map<
-        number,
-        ChecklistCriterion
-      >()
-
-      assignments.forEach(
-        assignment => {
-          assignment.criteria.forEach(
-            criterion => {
-              if (
-                !criteriaMap.has(
-                  criterion.criterion_id
-                )
-              ) {
-                criteriaMap.set(
-                  criterion.criterion_id,
-                  criterion
-                )
-              }
-            }
-          )
-        }
-      )
-
-      const allCriteria =
-        Array.from(
-          criteriaMap.values()
-        ).sort(
-          (a, b) =>
-            (a.sort_order || 0) -
-            (b.sort_order || 0)
+      const withCriteria =
+        assignments.filter(
+          assignment =>
+            assignment.criteria &&
+            assignment.criteria.length
         )
 
-      if (!allCriteria.length) {
+      if (!withCriteria.length) {
         line(
           'No checklist criteria found for these assignments.'
         )
       } else {
         // ======================================================
-        // BATCHING — split criteria into sets that fit the page
+        // GROUP ASSIGNMENTS BY WHICH CHECKLIST THEY USE
+        // ======================================================
+
+        type ChecklistGroup = {
+          criteria: ChecklistCriterion[]
+          assignments: AssignmentChecklistEvaluation[]
+        }
+
+        const groups: ChecklistGroup[] =
+          []
+
+        const indexBySignature =
+          new Map<string, number>()
+
+        withCriteria.forEach(
+          assignment => {
+            const sortedCriteria =
+              assignment.criteria
+                .slice()
+                .sort(
+                  (a, b) =>
+                    (a.sort_order ||
+                      0) -
+                    (b.sort_order ||
+                      0)
+                )
+
+            const signature =
+              sortedCriteria
+                .map(
+                  c =>
+                    c.criterion_id
+                )
+                .slice()
+                .sort(
+                  (a, b) => a - b
+                )
+                .join(',')
+
+            if (
+              !indexBySignature.has(
+                signature
+              )
+            ) {
+              indexBySignature.set(
+                signature,
+                groups.length
+              )
+
+              groups.push({
+                criteria:
+                  sortedCriteria,
+                assignments: [],
+              })
+            }
+
+            groups[
+              indexBySignature.get(
+                signature
+              )!
+            ].assignments.push(
+              assignment
+            )
+          }
+        )
+
+        // ======================================================
+        // SHARED LAYOUT CONSTANTS
         // ======================================================
 
         const availableWidth =
@@ -551,22 +587,6 @@ function buildPdf(
                 MIN_CRITERION_COL_WIDTH
             )
           )
-
-        const batches: ChecklistCriterion[][] =
-          []
-
-        for (
-          let i = 0;
-          i < allCriteria.length;
-          i += maxCriteriaPerBatch
-        ) {
-          batches.push(
-            allCriteria.slice(
-              i,
-              i + maxCriteriaPerBatch
-            )
-          )
-        }
 
         // ======================================================
         // DRAW ONE TABLE (a "set" of columns)
@@ -736,32 +756,42 @@ function buildPdf(
         }
 
         // ======================================================
-        // DRAW EACH BATCH AS ITS OWN TABLE
+        // DRAW ONE TABLE PER CHECKLIST GROUP
         // ======================================================
 
-        batches.forEach(
-          (batchCriteria, batchIndex) => {
-            if (batchIndex > 0) {
-              ensureSpace(10)
+        groups.forEach(
+          (group, groupIndex) => {
+            if (groupIndex > 0) {
+              ensureSpace(12)
 
-              doc.setFontSize(8)
+              y += 4
+            }
+
+            if (groups.length > 1) {
+              ensureSpace(8)
+
+              doc.setFontSize(9)
 
               doc.setFont(
                 'helvetica',
-                'italic'
+                'bold'
               )
 
-              doc.setTextColor(120)
-
               doc.text(
-                `Checklist criteria — set ${
-                  batchIndex + 1
-                } of ${batches.length}`,
+                `Checklist ${
+                  groupIndex + 1
+                } — ${
+                  group.assignments
+                    .length
+                } assignment${
+                  group.assignments
+                    .length > 1
+                    ? 's'
+                    : ''
+                }`,
                 marginX,
                 y
               )
-
-              doc.setTextColor(0)
 
               y += 6
 
@@ -771,86 +801,154 @@ function buildPdf(
               )
             }
 
-            const criteriaWidth =
-              criteriaAreaWidth /
-              batchCriteria.length
+            // this group's own criteria, split into page-fitting
+            // batches if it alone has too many
+            const batches: ChecklistCriterion[][] =
+              []
 
-            const headers = [
-              'Assignment Name',
-              'Delivered On',
-
-              ...batchCriteria.map(
-                c => c.name
-              ),
-
-              'Final',
-            ]
-
-            const columnWidths = [
-              firstColumnWidth,
-              dateColumnWidth,
-
-              ...batchCriteria.map(
-                () => criteriaWidth
-              ),
-
-              finalColumnWidth,
-            ]
-
-            const rows =
-              assignments.map(
-                assignment => {
-                  const values =
-                    batchCriteria.map(
-                      globalCriterion => {
-                        const criterion =
-                          assignment.criteria.find(
-                            item =>
-                              item.criterion_id ===
-                              globalCriterion.criterion_id
-                          )
-
-                        return formatCriterionValue(
-                          criterion
-                        )
-                      }
-                    )
-
-                  return [
-                    assignment.assessment_title ||
-                      '—',
-
-                    assignment.delivered_on
-                      ? String(
-                          assignment.delivered_on
-                        ).slice(
-                          0,
-                          10
-                        )
-                      : '—',
-
-                    ...values,
-
-                    assignment.final_score !==
-                      null &&
-                    assignment.final_score !==
-                      undefined
-                      ? `${assignment.final_score} / ${
-                          assignment.max_score ||
-                          100
-                        }`
-                      : '—',
-                  ]
-                }
+            for (
+              let i = 0;
+              i <
+              group.criteria.length;
+              i +=
+                maxCriteriaPerBatch
+            ) {
+              batches.push(
+                group.criteria.slice(
+                  i,
+                  i +
+                    maxCriteriaPerBatch
+                )
               )
+            }
 
-            drawChecklistTable(
-              headers,
-              columnWidths,
-              rows
+            batches.forEach(
+              (
+                batchCriteria,
+                batchIndex
+              ) => {
+                if (
+                  batchIndex > 0
+                ) {
+                  ensureSpace(10)
+
+                  doc.setFontSize(8)
+
+                  doc.setFont(
+                    'helvetica',
+                    'italic'
+                  )
+
+                  doc.setTextColor(
+                    120
+                  )
+
+                  doc.text(
+                    `Criteria — set ${
+                      batchIndex + 1
+                    } of ${
+                      batches.length
+                    }`,
+                    marginX,
+                    y
+                  )
+
+                  doc.setTextColor(
+                    0
+                  )
+
+                  y += 6
+
+                  doc.setFont(
+                    'helvetica',
+                    'normal'
+                  )
+                }
+
+                const criteriaWidth =
+                  criteriaAreaWidth /
+                  batchCriteria.length
+
+                const headers = [
+                  'Assignment Name',
+                  'Delivered On',
+
+                  ...batchCriteria.map(
+                    c => c.name
+                  ),
+
+                  'Final',
+                ]
+
+                const columnWidths =
+                  [
+                    firstColumnWidth,
+                    dateColumnWidth,
+
+                    ...batchCriteria.map(
+                      () =>
+                        criteriaWidth
+                    ),
+
+                    finalColumnWidth,
+                  ]
+
+                const rows =
+                  group.assignments.map(
+                    assignment => {
+                      const values =
+                        batchCriteria.map(
+                          globalCriterion => {
+                            const criterion =
+                              assignment.criteria.find(
+                                item =>
+                                  item.criterion_id ===
+                                  globalCriterion.criterion_id
+                              )
+
+                            return formatCriterionValue(
+                              criterion
+                            )
+                          }
+                        )
+
+                      return [
+                        assignment.assessment_title ||
+                          '—',
+
+                        assignment.delivered_on
+                          ? String(
+                              assignment.delivered_on
+                            ).slice(
+                              0,
+                              10
+                            )
+                          : '—',
+
+                        ...values,
+
+                        assignment.final_score !==
+                          null &&
+                        assignment.final_score !==
+                          undefined
+                          ? `${assignment.final_score} / ${
+                              assignment.max_score ||
+                              100
+                            }`
+                          : '—',
+                      ]
+                    }
+                  )
+
+                drawChecklistTable(
+                  headers,
+                  columnWidths,
+                  rows
+                )
+
+                y += 8
+              }
             )
-
-            y += 8
           }
         )
       }
