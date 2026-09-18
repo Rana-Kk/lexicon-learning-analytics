@@ -174,7 +174,7 @@ export default function TeacherQuizResults() {
     }
   })
 
-  // Highest to lowest, used for both the comparison chart and the ranking list
+  // Highest to lowest, used for both the comparison chart and the ranking lis
   const rankedStudentAvgs = [...studentAvgs].sort((a, b) => b.avg - a.avg)
 
   const quizTitles = [
