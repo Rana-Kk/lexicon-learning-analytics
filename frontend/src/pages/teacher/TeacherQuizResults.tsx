@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getQuizResults, getGroups } from '../../lib/api'
+import { getQuizResults, getGroups, upsertQuizResult } from '../../lib/api'
 import StatCard from '../../components/StatCard'
 import TeacherQuizImport from './TeacherQuizImport'
 import {
@@ -20,7 +20,11 @@ export default function TeacherQuizResults() {
   const [filterStudent, setFilterStudent] = useState('all')
   const [filterTopic, setFilterTopic] = useState('all')
 
-  // Öğretmenin kendisine atanmış grupları yükle
+  const [editingRowId, setEditingRowId] = useState<number | string | null>(null)
+  const [editScore, setEditScore] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  // Load the groups assigned to this teacher
   const loadGroups = async () => {
     try {
       setGroupsLoading(true)
@@ -33,7 +37,7 @@ export default function TeacherQuizResults() {
     }
   }
 
-  // Seçili grubun sonuçlarını yükle
+  // Load results for the selected group
   const loadResults = async (groupId: string) => {
     if (!groupId) {
       setResults([])
@@ -50,6 +54,45 @@ export default function TeacherQuizResults() {
       setError(err?.message || 'Could not load quiz results.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const startEdit = (r: any) => {
+    setEditingRowId(r.id)
+    setEditScore(String(r.score))
+  }
+
+  const cancelEdit = () => {
+    setEditingRowId(null)
+    setEditScore('')
+  }
+
+  const saveEdit = async (r: any) => {
+    const parsed = Number(editScore)
+
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > r.max_score) {
+      setError(`Score must be a number between 0 and ${r.max_score}.`)
+      return
+    }
+
+    try {
+      setSavingEdit(true)
+      setError('')
+
+      await upsertQuizResult({
+        quiz_id: r.quiz_id,
+        student_id: r.student_id,
+        score: parsed,
+        completed_at: r.completed_at,
+      })
+
+      setEditingRowId(null)
+      setEditScore('')
+      await loadResults(selectedGroupId)
+    } catch (err: any) {
+      setError(err?.message || 'Could not update the result.')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -203,7 +246,7 @@ export default function TeacherQuizResults() {
         </div>
       )}
 
-      {/* Grup seçici — teacher önce kendine atanmış gruplar arasından seçim yapar */}
+      {/* Group selector — teacher must pick one of their own assigned groups first */}
       <div
         className="mb-6 rounded-xl p-5"
         style={{
@@ -249,7 +292,7 @@ export default function TeacherQuizResults() {
             color: 'var(--muted-foreground)',
           }}
         >
-          Sonuçları görmek için bir grup seçin.
+          Select a group to view its results.
         </div>
       ) : loading ? (
         <p className="text-sm">Loading quiz results...</p>
@@ -473,6 +516,7 @@ export default function TeacherQuizResults() {
                     'Score',
                     'Percentage',
                     'Date',
+                    'Actions',
                   ].map((h) => (
                     <th
                       key={h}
