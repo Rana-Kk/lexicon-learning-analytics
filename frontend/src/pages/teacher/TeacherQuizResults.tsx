@@ -37,18 +37,16 @@ export default function TeacherQuizResults() {
     }
   }
 
-  // Load results for the selected group
+  // Load results — an empty groupId means "all groups"
   const loadResults = async (groupId: string) => {
-    if (!groupId) {
-      setResults([])
-      return
-    }
-
     try {
       setLoading(true)
       setError('')
 
-      const res = await getQuizResults({ group_id: groupId })
+      const res = groupId
+        ? await getQuizResults({ group_id: groupId })
+        : await getQuizResults()
+
       setResults(res.data ?? [])
     } catch (err: any) {
       setError(err?.message || 'Could not load quiz results.')
@@ -275,7 +273,7 @@ export default function TeacherQuizResults() {
           }}
         >
           <option value="">
-            {groupsLoading ? 'Loading groups...' : 'Select a group'}
+            {groupsLoading ? 'Loading groups...' : 'All groups'}
           </option>
 
           {groups.map((g) => (
@@ -286,18 +284,7 @@ export default function TeacherQuizResults() {
         </select>
       </div>
 
-      {!selectedGroupId ? (
-        <div
-          className="rounded-xl p-8 text-center text-sm"
-          style={{
-            background: 'var(--card)',
-            border: '1px solid var(--border)',
-            color: 'var(--muted-foreground)',
-          }}
-        >
-          Select a group to view its results.
-        </div>
-      ) : loading ? (
+      {loading ? (
         <p className="text-sm">Loading quiz results...</p>
       ) : (
         <>
