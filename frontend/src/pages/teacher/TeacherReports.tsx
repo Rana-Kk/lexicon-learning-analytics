@@ -449,6 +449,14 @@ function buildPdf(
 
   // ============================================================
   // ASSIGNMENT CHECKLIST EVALUATIONS
+  //
+  // One small (Criterion | Result) table PER ASSIGNMENT, instead
+  // of a single wide table with every distinct criterion across
+  // every assignment as its own column. Different assignments
+  // usually have different checklists, so a union table ends up
+  // with too many columns and the headers overlap/wrap into each
+  // other. A per-assignment table always has exactly 2 columns,
+  // so it never squeezes.
   // ============================================================
 
   if (
@@ -470,280 +478,254 @@ function buildPdf(
         'No assignment checklist evaluations.'
       )
     } else {
-      // ========================================================
-      // GET ALL UNIQUE CRITERIA
-      //
-      // These become the table columns.
-      // ========================================================
-
-      const criteriaMap = new Map<
-        number,
-        ChecklistCriterion
-      >()
-
-      assignments.forEach(
-        assignment => {
-          assignment.criteria.forEach(
-            criterion => {
-              if (
-                !criteriaMap.has(
-                  criterion.criterion_id
-                )
-              ) {
-                criteriaMap.set(
-                  criterion.criterion_id,
-                  criterion
-                )
-              }
-            }
-          )
-        }
-      )
-
-      const allCriteria =
-        Array.from(
-          criteriaMap.values()
-        ).sort(
-          (a, b) =>
-            (a.sort_order || 0) -
-            (b.sort_order || 0)
-        )
-
-      // ========================================================
-      // TABLE CONFIGURATION
-      // ========================================================
-
-      const headers = [
-        'Assignment Name',
-        'Delivered On',
-
-        ...allCriteria.map(
-          c => c.name
-        ),
-
-        'Final',
-      ]
-
-      const availableWidth =
+      const tableWidth =
         pageWidth - marginX * 2
 
-      const firstColumnWidth = 35
+      const criterionColWidth =
+        tableWidth * 0.6
 
-      const dateColumnWidth = 20
+      const resultColWidth =
+        tableWidth -
+        criterionColWidth
 
-      const finalColumnWidth = 22
-
-      const criteriaWidth =
-        (
-          availableWidth -
-          firstColumnWidth -
-          dateColumnWidth -
-          finalColumnWidth
-        ) /
-        Math.max(
-          allCriteria.length,
-          1
+      const withCriteria =
+        assignments.filter(
+          assignment =>
+            assignment.criteria &&
+            assignment.criteria.length
         )
 
-      const columnWidths = [
-        firstColumnWidth,
-        dateColumnWidth,
-
-        ...allCriteria.map(
-          () => criteriaWidth
-        ),
-
-        finalColumnWidth,
-      ]
-
-      // ========================================================
-      // DRAW HEADER
-      // ========================================================
-
-      const drawTableHeader = () => {
-        const headerHeight = 20
-
-        ensureSpace(headerHeight + 8)
-
-        let x = marginX
-
-        doc.setFillColor(
-          235,
-          235,
-          235
+      if (!withCriteria.length) {
+        line(
+          'No checklist criteria found for these assignments.'
         )
-
-        doc.rect(
-          marginX,
-          y,
-          availableWidth,
-          headerHeight,
-          'F'
-        )
-
-        doc.setFontSize(6.5)
-
-        doc.setFont(
-          'helvetica',
-          'bold'
-        )
-
-        headers.forEach(
-          (header, index) => {
-            const width =
-              columnWidths[index]
-
-            const wrapped =
-              doc.splitTextToSize(
-                header.toUpperCase(),
-                width - 3
-              )
-
-            doc.text(
-              wrapped,
-              x + 2,
-              y + 5
-            )
-
-            x += width
-          }
-        )
-
-        doc.setDrawColor(
-          200
-        )
-
-        doc.rect(
-          marginX,
-          y,
-          availableWidth,
-          headerHeight
-        )
-
-        y += headerHeight
-
-        doc.setFont(
-          'helvetica',
-          'normal'
-        )
-
-        doc.setFontSize(7)
       }
 
-      drawTableHeader()
+      withCriteria.forEach(
+        (assignment, index) => {
+          // ------------------------------------------------------
+          // ASSIGNMENT SUB-HEADER
+          // ------------------------------------------------------
 
-      // ========================================================
-      // DRAW EACH ASSIGNMENT
-      // ========================================================
+          ensureSpace(18)
 
-      assignments.forEach(
-        assignment => {
-          const values =
-            allCriteria.map(
-              globalCriterion => {
-                const criterion =
-                  assignment.criteria.find(
-                    item =>
-                      item.criterion_id ===
-                      globalCriterion.criterion_id
-                  )
+          doc.setFontSize(10)
 
-                return formatCriterionValue(
-                  criterion
-                )
-              }
-            )
+          doc.setFont(
+            'helvetica',
+            'bold'
+          )
 
-          const rowValues = [
+          doc.text(
             assignment.assessment_title ||
               '—',
+            marginX,
+            y
+          )
 
+          const finalLabel =
+            assignment.final_score !==
+              null &&
+            assignment.final_score !==
+              undefined
+              ? `${
+                  assignment.final_score
+                } / ${
+                  assignment.max_score ||
+                  100
+                }`
+              : '—'
+
+          const deliveredLabel =
             assignment.delivered_on
               ? String(
                   assignment.delivered_on
                 ).slice(0, 10)
-              : '—',
+              : '—'
 
-            ...values,
+          doc.setFontSize(8)
 
-            assignment.final_score !==
-            null &&
-            assignment.final_score !==
-            undefined
-              ? `${assignment.final_score} / ${
-                  assignment.max_score || 100
-                }`
-              : '—',
-          ]
-
-          // Calculate row height
-          let rowHeight = 16
-
-          rowValues.forEach(
-            (value, index) => {
-              const lines =
-                doc.splitTextToSize(
-                  String(value),
-                  columnWidths[index] - 3
-                )
-
-              rowHeight = Math.max(
-                rowHeight,
-                lines.length * 4 + 6
-              )
-            }
+          doc.setFont(
+            'helvetica',
+            'normal'
           )
 
-          if (
-            y + rowHeight >
-            pageHeight - 15
-          ) {
-            doc.addPage()
+          doc.setTextColor(100)
 
-            y = 15
+          doc.text(
+            `${deliveredLabel}    ·    Final: ${finalLabel}`,
+            pageWidth - marginX,
+            y,
+            { align: 'right' }
+          )
 
-            drawTableHeader()
-          }
+          doc.setTextColor(0)
 
-          let x = marginX
+          y += 6
 
-          rowValues.forEach(
-            (value, index) => {
-              const width =
-                columnWidths[index]
+          // ------------------------------------------------------
+          // TABLE HEADER (Criterion | Result)
+          // ------------------------------------------------------
+
+          const headerHeight = 7
+
+          ensureSpace(
+            headerHeight + 10
+          )
+
+          doc.setFillColor(
+            235,
+            235,
+            235
+          )
+
+          doc.rect(
+            marginX,
+            y,
+            tableWidth,
+            headerHeight,
+            'F'
+          )
+
+          doc.setFontSize(7)
+
+          doc.setFont(
+            'helvetica',
+            'bold'
+          )
+
+          doc.text(
+            'CRITERION',
+            marginX + 2,
+            y + 5
+          )
+
+          doc.text(
+            'RESULT',
+            marginX +
+              criterionColWidth +
+              2,
+            y + 5
+          )
+
+          doc.setDrawColor(200)
+
+          doc.rect(
+            marginX,
+            y,
+            tableWidth,
+            headerHeight
+          )
+
+          y += headerHeight
+
+          doc.setFont(
+            'helvetica',
+            'normal'
+          )
+
+          doc.setFontSize(8)
+
+          // ------------------------------------------------------
+          // ROWS — one row per criterion for THIS assignment only
+          // ------------------------------------------------------
+
+          const criteria =
+            assignment.criteria
+              .slice()
+              .sort(
+                (a, b) =>
+                  (a.sort_order ||
+                    0) -
+                  (b.sort_order || 0)
+              )
+
+          criteria.forEach(
+            criterion => {
+              const value =
+                formatCriterionValue(
+                  criterion
+                )
+
+              const nameLines =
+                doc.splitTextToSize(
+                  criterion.name,
+                  criterionColWidth -
+                    4
+                )
+
+              const valueLines =
+                doc.splitTextToSize(
+                  String(value),
+                  resultColWidth - 4
+                )
+
+              const rowHeight =
+                Math.max(
+                  nameLines.length,
+                  valueLines.length
+                ) *
+                  4 +
+                4
+
+              if (
+                y + rowHeight >
+                pageHeight - 15
+              ) {
+                doc.addPage()
+
+                y = 15
+              }
 
               doc.setDrawColor(
                 210
               )
 
               doc.rect(
-                x,
+                marginX,
                 y,
-                width,
+                criterionColWidth,
                 rowHeight
               )
 
-              const wrapped =
-                doc.splitTextToSize(
-                  String(value),
-                  width - 3
-                )
+              doc.rect(
+                marginX +
+                  criterionColWidth,
+                y,
+                resultColWidth,
+                rowHeight
+              )
 
               doc.text(
-                wrapped,
-                x + 2,
+                nameLines,
+                marginX + 2,
                 y + 5
               )
 
-              x += width
+              doc.text(
+                valueLines,
+                marginX +
+                  criterionColWidth +
+                  2,
+                y + 5
+              )
+
+              y += rowHeight
             }
           )
 
-          y += rowHeight
+          y += 6
+
+          if (
+            index <
+            withCriteria.length - 1
+          ) {
+            ensureSpace(2)
+          }
         }
       )
 
-      y += 8
+      y += 2
     }
   }
 

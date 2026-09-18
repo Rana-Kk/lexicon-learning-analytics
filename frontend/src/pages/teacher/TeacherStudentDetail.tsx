@@ -216,32 +216,26 @@ export default function TeacherStudentDetail({
   }, [data])
 
   /**
-   * Collect the checklist criteria across all assessments.
+   * Assessments that actually have checklist criteria attached.
    *
-   * This lets us build a table shaped like:
+   * We used to build one big table with every distinct criterion
+   * (across every assignment) as its own column. Different
+   * assignments almost always have different checklists, so that
+   * union table ends up with a huge number of columns and the
+   * headers wrap and overlap each other.
    *
-   * Assignment | Criterion 1 | Criterion 2 | Criterion 3
+   * Instead, each assignment gets its own small (Criterion |
+   * Result) table below, scoped to just its own criteria.
    */
-  const checklistColumns = useMemo(() => {
+  const assessmentsWithChecklist = useMemo(() => {
     const assessments: Assessment[] =
       data?.assessments || []
 
-    const map = new Map<number, ChecklistCriterion>()
-
-    for (const assessment of assessments) {
-      const checklist = assessment.checklist || []
-
-      for (const criterion of checklist) {
-        if (!map.has(Number(criterion.id))) {
-          map.set(
-            Number(criterion.id),
-            criterion
-          )
-        }
-      }
-    }
-
-    return Array.from(map.values())
+    return assessments.filter(
+      (assessment) =>
+        assessment.checklist &&
+        assessment.checklist.length > 0
+    )
   }, [data])
 
   async function save() {
@@ -451,6 +445,10 @@ export default function TeacherStudentDetail({
 
       {/* =====================================================
           ASSIGNMENT CHECKLIST EVALUATIONS
+
+          One small table per assignment (Criterion | Result),
+          rather than one wide table where every distinct
+          criterion across every assignment is its own column.
       ====================================================== */}
 
       <section
@@ -493,7 +491,7 @@ export default function TeacherStudentDetail({
             No assignments found.
           </div>
 
-        ) : checklistColumns.length === 0 ? (
+        ) : assessmentsWithChecklist.length === 0 ? (
 
           <div
             className="p-8 text-center"
@@ -507,163 +505,141 @@ export default function TeacherStudentDetail({
 
         ) : (
 
-          <div>
+          <div
+            className="divide-y"
+            style={{
+              borderColor: 'var(--border)'
+            }}
+          >
 
-            <table className="w-full text-sm table-fixed">
+            {assessmentsWithChecklist.map(
+              (assessment) => (
 
-              <thead
-                style={{
-                  background: 'var(--muted)'
-                }}
-              >
-                <tr>
+                <div
+                  key={assessment.id}
+                  className="p-4"
+                >
 
-                  {/* ASSIGNMENT NAME */}
-                  <th
-                    className="text-left px-4 py-3 text-xs uppercase"
-                    style={{
-                      color:
-                        'var(--muted-foreground)',
-                      width: '18%'
-                    }}
-                  >
-                    Assignment Name
-                  </th>
+                  {/* ASSIGNMENT SUB-HEADER */}
+                  <div className="flex items-baseline justify-between gap-4 flex-wrap mb-3">
 
-                  {/* CHECKLIST COLUMNS */}
-                  {checklistColumns.map(
-                    (criterion) => (
-                      <th
-                        key={criterion.id}
-                        className="text-left px-4 py-3 text-xs uppercase"
+                    <div>
+                      <p className="font-medium">
+                        {assessment.title}
+                      </p>
+
+                      <p
+                        className="text-xs mt-0.5"
                         style={{
                           color:
-                            'var(--muted-foreground)',
-                          whiteSpace: 'normal'
+                            'var(--muted-foreground)'
                         }}
                       >
-                        <div>
-                          {criterion.name}
-                        </div>
-
-                        {criterion.max_score != null &&
-                          criterion.criterion_type ===
-                            'score' && (
-                            <div
-                              className="normal-case font-normal mt-1"
-                              style={{
-                                color:
-                                  'var(--muted-foreground)'
-                              }}
-                            >
-                              Max: {criterion.max_score}
-                            </div>
-                          )}
-                      </th>
-                    )
-                  )}
-
-                  {/* FINAL */}
-                  <th
-                    className="text-left px-4 py-3 text-xs uppercase"
-                    style={{
-                      color:
-                        'var(--muted-foreground)',
-                      width: '10%'
-                    }}
-                  >
-                    Final
-                  </th>
-
-                </tr>
-              </thead>
-
-              <tbody>
-
-                {assessments.map(
-                  (assessment) => {
-
-                    const checklist =
-                      assessment.checklist || []
-
-                    return (
-                      <tr
-                        key={assessment.id}
-                        style={{
-                          borderTop:
-                            '1px solid var(--border)'
-                        }}
-                      >
-
-                        {/* ASSIGNMENT TITLE */}
-                        <td
-                          className="px-4 py-4 font-medium align-top"
-                        >
-                          <div>
-                            {assessment.title}
-                          </div>
-
-                          <div
-                            className="text-xs mt-1"
-                            style={{
-                              color:
-                                'var(--muted-foreground)'
-                            }}
-                          >
-                            {date(
-                              assessment.assessment_date ||
-                              assessment.due_date
-                            )}
-                          </div>
-                        </td>
-
-                        {/* CHECKLIST VALUES */}
-                        {checklistColumns.map(
-                          (column) => {
-
-                            const criterion =
-                              checklist.find(
-                                (item) =>
-                                  Number(item.id) ===
-                                  Number(column.id)
-                              )
-
-                            return (
-                              <td
-                                key={column.id}
-                                className="px-4 py-4 align-top"
-                                style={{
-                                  whiteSpace:
-                                    'normal',
-                                  overflowWrap:
-                                    'break-word'
-                                }}
-                              >
-                                {criterion
-                                  ? getChecklistValue(
-                                      criterion
-                                    )
-                                  : '—'}
-                              </td>
-                            )
-                          }
+                        {date(
+                          assessment.assessment_date ||
+                          assessment.due_date
                         )}
+                      </p>
+                    </div>
 
-                        {/* FINAL SCORE */}
-                        <td className="px-4 py-4 font-semibold align-top">
-                          {assessment.score != null
-                            ? `${assessment.score} / ${assessment.max_score}`
-                            : '—'}
-                        </td>
+                    <p className="text-sm font-semibold">
+                      {assessment.score != null
+                        ? `${assessment.score} / ${assessment.max_score}`
+                        : '—'}
+                    </p>
+
+                  </div>
+
+                  {/* PER-ASSIGNMENT CHECKLIST TABLE */}
+                  <table className="w-full text-sm table-fixed">
+
+                    <thead
+                      style={{
+                        background: 'var(--muted)'
+                      }}
+                    >
+                      <tr>
+
+                        <th
+                          className="text-left px-3 py-2 text-xs uppercase"
+                          style={{
+                            color:
+                              'var(--muted-foreground)',
+                            width: '55%'
+                          }}
+                        >
+                          Criterion
+                        </th>
+
+                        <th
+                          className="text-left px-3 py-2 text-xs uppercase"
+                          style={{
+                            color:
+                              'var(--muted-foreground)'
+                          }}
+                        >
+                          Result
+                        </th>
 
                       </tr>
-                    )
-                  }
-                )}
+                    </thead>
 
-              </tbody>
+                    <tbody>
 
-            </table>
+                      {(assessment.checklist || []).map(
+                        (criterion) => (
+
+                          <tr
+                            key={criterion.id}
+                            style={{
+                              borderTop:
+                                '1px solid var(--border)'
+                            }}
+                          >
+
+                            <td className="px-3 py-2 align-top">
+
+                              <div>
+                                {criterion.name}
+                              </div>
+
+                              {criterion.max_score != null &&
+                                criterion.criterion_type ===
+                                  'score' && (
+                                  <div
+                                    className="text-xs mt-0.5"
+                                    style={{
+                                      color:
+                                        'var(--muted-foreground)'
+                                    }}
+                                  >
+                                    Max: {criterion.max_score}
+                                  </div>
+                                )}
+
+                            </td>
+
+                            <td
+                              className="px-3 py-2 align-top"
+                              style={{
+                                whiteSpace: 'normal',
+                                overflowWrap: 'break-word'
+                              }}
+                            >
+                              {getChecklistValue(criterion)}
+                            </td>
+
+                          </tr>
+                        )
+                      )}
+
+                    </tbody>
+
+                  </table>
+
+                </div>
+              )
+            )}
 
           </div>
         )}

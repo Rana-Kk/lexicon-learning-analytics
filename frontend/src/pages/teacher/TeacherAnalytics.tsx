@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import StatCard from '../../components/StatCard'
 import { getMyGroups, getAnalyticsOverview, getStudentAnalytics } from '../../lib/api'
+import TeacherStudentDetail from './TeacherStudentDetail'
 
 type Group = {
   id: number | string
@@ -28,6 +29,8 @@ type StudentRow = {
   assessmentAvg: number
 }
 
+type SortColumn = 'attendance' | 'assessmentAvg' | 'quizAvg' | null
+
 export default function TeacherAnalytics() {
   const [groups, setGroups] = useState<Group[]>([])
   const [groupId, setGroupId] = useState<string>('')
@@ -36,6 +39,34 @@ export default function TeacherAnalytics() {
   const [loading, setLoading] = useState(true)
   const [loadingGroup, setLoadingGroup] = useState(false)
   const [error, setError] = useState('')
+
+  const [selectedStudentId, setSelectedStudentId] = useState<number | string | null>(null)
+
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null)
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+
+  const toggleSort = (column: Exclude<SortColumn, null>) => {
+    if (sortColumn !== column) {
+      setSortColumn(column)
+      setSortDir('desc')
+    } else if (sortDir === 'desc') {
+      setSortDir('asc')
+    } else {
+      setSortColumn(null)
+    }
+  }
+
+  const sortIndicator = (column: Exclude<SortColumn, null>) => {
+    if (sortColumn !== column) return ''
+    return sortDir === 'desc' ? ' ↓' : ' ↑'
+  }
+
+  const sortedStudents = [...students].sort((a, b) => {
+    if (!sortColumn) return 0
+
+    const diff = Number(a[sortColumn]) - Number(b[sortColumn])
+    return sortDir === 'desc' ? -diff : diff
+  })
 
   useEffect(() => {
     const load = async () => {
@@ -85,6 +116,16 @@ export default function TeacherAnalytics() {
 
   if (loading) {
     return <div className="p-6">Loading analytics...</div>
+  }
+
+  if (selectedStudentId != null) {
+    return (
+      <TeacherStudentDetail
+        studentId={Number(selectedStudentId)}
+        groupId={Number(groupId)}
+        onBack={() => setSelectedStudentId(null)}
+      />
+    )
   }
 
   const selectedGroup = groups.find((g) => String(g.id) === groupId)
@@ -184,14 +225,45 @@ export default function TeacherAnalytics() {
               <table className="w-full">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--muted)' }}>
-                    {['Student', 'Attendance', 'Assessment Avg', 'Quiz Avg'].map((h) => (
-                      <th key={h} className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
-                    ))}
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+                      Student
+                    </th>
+
+                    <th
+                      onClick={() => toggleSort('attendance')}
+                      className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider"
+                      style={{ color: 'var(--muted-foreground)', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      Attendance{sortIndicator('attendance')}
+                    </th>
+
+                    <th
+                      onClick={() => toggleSort('assessmentAvg')}
+                      className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider"
+                      style={{ color: 'var(--muted-foreground)', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      Assessment Avg{sortIndicator('assessmentAvg')}
+                    </th>
+
+                    <th
+                      onClick={() => toggleSort('quizAvg')}
+                      className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider"
+                      style={{ color: 'var(--muted-foreground)', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      Quiz Avg{sortIndicator('quizAvg')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map((s, i) => (
-                    <tr key={s.id} style={{ borderBottom: i < students.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  {sortedStudents.map((s, i) => (
+                    <tr
+                      key={s.id}
+                      onClick={() => setSelectedStudentId(s.id)}
+                      style={{
+                        borderBottom: i < sortedStudents.length - 1 ? '1px solid var(--border)' : 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
                       <td className="px-5 py-3.5 text-sm font-medium">{s.name}</td>
                       <td className="px-5 py-3.5 text-sm mono">{s.attendance}%</td>
                       <td className="px-5 py-3.5">
