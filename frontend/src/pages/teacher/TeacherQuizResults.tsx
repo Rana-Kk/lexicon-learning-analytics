@@ -24,6 +24,14 @@ export default function TeacherQuizResults() {
   const [editScore, setEditScore] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
+  const [scoreSort, setScoreSort] = useState<'none' | 'desc' | 'asc'>('none')
+
+  const toggleScoreSort = () => {
+    setScoreSort((prev) =>
+      prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'
+    )
+  }
+
   // Load the groups assigned to this teacher
   const loadGroups = async () => {
     try {
@@ -115,19 +123,25 @@ export default function TeacherQuizResults() {
     )
   }
 
-  const filtered = results.filter((r) => {
-    if (
-      filterStudent !== 'all' &&
-      String(r.student_id) !== filterStudent
-    ) return false
+  const filtered = results
+    .filter((r) => {
+      if (
+        filterStudent !== 'all' &&
+        String(r.student_id) !== filterStudent
+      ) return false
 
-    if (
-      filterTopic !== 'all' &&
-      r.topic !== filterTopic
-    ) return false
+      if (
+        filterTopic !== 'all' &&
+        r.topic !== filterTopic
+      ) return false
 
-    return true
-  })
+      return true
+    })
+    .sort((a, b) => {
+      if (scoreSort === 'desc') return Number(b.score) - Number(a.score)
+      if (scoreSort === 'asc') return Number(a.score) - Number(b.score)
+      return String(a.student_name).localeCompare(String(b.student_name))
+    })
 
   const percentages = filtered.map((r) => Number(r.percentage) || 0)
 
@@ -525,12 +539,23 @@ export default function TeacherQuizResults() {
                   ].map((h) => (
                     <th
                       key={h}
+                      onClick={h === 'Score' ? toggleScoreSort : undefined}
                       className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider"
                       style={{
                         color: 'var(--muted-foreground)',
+                        cursor: h === 'Score' ? 'pointer' : 'default',
+                        userSelect: h === 'Score' ? 'none' : 'auto',
                       }}
                     >
-                      {h}
+                      {h === 'Score'
+                        ? `${h}${
+                            scoreSort === 'desc'
+                              ? ' ↓'
+                              : scoreSort === 'asc'
+                              ? ' ↑'
+                              : ''
+                          }`
+                        : h}
                     </th>
                   ))}
                 </tr>
@@ -689,117 +714,6 @@ export default function TeacherQuizResults() {
             </table>
           </div>
 
-          <div
-            className="rounded-xl overflow-hidden mt-6"
-            style={{
-              background: 'var(--card)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <div
-              className="px-5 py-4 border-b"
-              style={{ borderColor: 'var(--border)' }}
-            >
-              <h2
-                className="text-base font-semibold"
-                style={{ fontFamily: 'Outfit, sans-serif' }}
-              >
-                Student Ranking
-              </h2>
-
-              <p
-                className="text-sm mt-0.5"
-                style={{ color: 'var(--muted-foreground)' }}
-              >
-                Highest to lowest average score
-              </p>
-            </div>
-
-            <table className="w-full">
-              <thead>
-                <tr
-                  style={{
-                    borderBottom: '1px solid var(--border)',
-                    background: 'var(--muted)',
-                  }}
-                >
-                  {['#', 'Student', 'Average Score'].map((h) => (
-                    <th
-                      key={h}
-                      className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider"
-                      style={{
-                        color: 'var(--muted-foreground)',
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {rankedStudentAvgs.map((s, i) => (
-                  <tr
-                    key={s.name}
-                    style={{
-                      borderBottom:
-                        i < rankedStudentAvgs.length - 1
-                          ? '1px solid var(--border)'
-                          : 'none',
-                    }}
-                  >
-                    <td
-                      className="px-5 py-3.5 text-sm font-semibold"
-                      style={{ color: 'var(--muted-foreground)' }}
-                    >
-                      {i + 1}
-                    </td>
-
-                    <td className="px-5 py-3.5 text-sm font-medium">
-                      {s.name}
-                    </td>
-
-                    <td className="px-5 py-3.5">
-                      <span
-                        className="text-sm font-semibold mono px-2.5 py-1 rounded-full"
-                        style={{
-                          background:
-                            s.avg >= 80
-                              ? '#DCFCE7'
-                              : s.avg >= 60
-                              ? '#FEF3C7'
-                              : '#FEE2E2',
-
-                          color:
-                            s.avg >= 80
-                              ? '#15803D'
-                              : s.avg >= 60
-                              ? '#B45309'
-                              : '#B91C1C',
-                        }}
-                      >
-                        {s.avg}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-
-                {!rankedStudentAvgs.length && (
-                  <tr>
-                    <td
-                      colSpan={3}
-                      className="px-5 py-8 text-center text-sm"
-                      style={{
-                        color: 'var(--muted-foreground)',
-                      }}
-                    >
-                      No students to rank yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
         </>
       )}
     </div>
