@@ -176,6 +176,9 @@ export default function TeacherQuizResults() {
     }
   })
 
+  // Highest to lowest, used for both the comparison chart and the ranking list
+  const rankedStudentAvgs = [...studentAvgs].sort((a, b) => b.avg - a.avg)
+
   const quizTitles = [
     ...new Set(results.map((r) => r.quiz_title)),
   ]
@@ -327,7 +330,7 @@ export default function TeacherQuizResults() {
 
           <div
             className="grid gap-6 mb-6"
-            style={{ gridTemplateColumns: '1fr 1fr' }}
+            style={{ gridTemplateColumns: '1fr' }}
           >
 
             <div
@@ -394,30 +397,36 @@ export default function TeacherQuizResults() {
                 Student Comparison
               </h2>
 
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(200, rankedStudentAvgs.length * 32)}
+              >
                 <BarChart
-                  data={studentAvgs}
-                  barCategoryGap="35%"
+                  data={rankedStudentAvgs}
+                  layout="vertical"
+                  margin={{ left: 8, right: 16 }}
                 >
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="var(--border)"
-                    vertical={false}
+                    horizontal={false}
                   />
 
                   <XAxis
-                    dataKey="name"
+                    type="number"
+                    domain={[0, 100]}
                     tick={{ fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                   />
 
                   <YAxis
-                    domain={[0, 100]}
+                    type="category"
+                    dataKey="name"
                     tick={{ fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
-                    width={28}
+                    width={110}
                   />
 
                   <Tooltip />
@@ -426,7 +435,7 @@ export default function TeacherQuizResults() {
                     dataKey="avg"
                     name="Avg Score %"
                     fill="#0891B2"
-                    radius={[4, 4, 0, 0]}
+                    radius={[0, 4, 4, 0]}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -561,7 +570,25 @@ export default function TeacherQuizResults() {
                     </td>
 
                     <td className="px-5 py-3.5 text-sm mono">
-                      {r.score}/{r.max_score}
+                      {editingRowId === r.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={r.max_score}
+                            value={editScore}
+                            onChange={(e) => setEditScore(e.target.value)}
+                            className="w-16 px-2 py-1 rounded-md text-sm"
+                            style={{
+                              border: '1px solid var(--border)',
+                            }}
+                            autoFocus
+                          />
+                          <span>/{r.max_score}</span>
+                        </div>
+                      ) : (
+                        <>{r.score}/{r.max_score}</>
+                      )}
                     </td>
 
                     <td className="px-5 py-3.5">
@@ -599,13 +626,59 @@ export default function TeacherQuizResults() {
                           ).toLocaleDateString('en-GB')
                         : '-'}
                     </td>
+
+                    <td className="px-5 py-3.5 text-sm">
+                      {editingRowId === r.id ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => saveEdit(r)}
+                            disabled={savingEdit}
+                            className="text-xs font-semibold px-2.5 py-1 rounded-md"
+                            style={{
+                              background: 'var(--primary)',
+                              color: 'white',
+                              border: 'none',
+                              cursor: 'pointer',
+                              opacity: savingEdit ? 0.6 : 1,
+                            }}
+                          >
+                            {savingEdit ? 'Saving...' : 'Save'}
+                          </button>
+
+                          <button
+                            onClick={cancelEdit}
+                            disabled={savingEdit}
+                            className="text-xs font-semibold px-2.5 py-1 rounded-md"
+                            style={{
+                              background: 'var(--muted)',
+                              border: '1px solid var(--border)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => startEdit(r)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-md"
+                          style={{
+                            background: 'var(--muted)',
+                            border: '1px solid var(--border)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
 
                 {!filtered.length && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-5 py-8 text-center text-sm"
                       style={{
                         color: 'var(--muted-foreground)',
@@ -616,6 +689,118 @@ export default function TeacherQuizResults() {
                   </tr>
                 )}
 
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            className="rounded-xl overflow-hidden mt-6"
+            style={{
+              background: 'var(--card)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div
+              className="px-5 py-4 border-b"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: 'Outfit, sans-serif' }}
+              >
+                Student Ranking
+              </h2>
+
+              <p
+                className="text-sm mt-0.5"
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                Highest to lowest average score
+              </p>
+            </div>
+
+            <table className="w-full">
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: '1px solid var(--border)',
+                    background: 'var(--muted)',
+                  }}
+                >
+                  {['#', 'Student', 'Average Score'].map((h) => (
+                    <th
+                      key={h}
+                      className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider"
+                      style={{
+                        color: 'var(--muted-foreground)',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {rankedStudentAvgs.map((s, i) => (
+                  <tr
+                    key={s.name}
+                    style={{
+                      borderBottom:
+                        i < rankedStudentAvgs.length - 1
+                          ? '1px solid var(--border)'
+                          : 'none',
+                    }}
+                  >
+                    <td
+                      className="px-5 py-3.5 text-sm font-semibold"
+                      style={{ color: 'var(--muted-foreground)' }}
+                    >
+                      {i + 1}
+                    </td>
+
+                    <td className="px-5 py-3.5 text-sm font-medium">
+                      {s.name}
+                    </td>
+
+                    <td className="px-5 py-3.5">
+                      <span
+                        className="text-sm font-semibold mono px-2.5 py-1 rounded-full"
+                        style={{
+                          background:
+                            s.avg >= 80
+                              ? '#DCFCE7'
+                              : s.avg >= 60
+                              ? '#FEF3C7'
+                              : '#FEE2E2',
+
+                          color:
+                            s.avg >= 80
+                              ? '#15803D'
+                              : s.avg >= 60
+                              ? '#B45309'
+                              : '#B91C1C',
+                        }}
+                      >
+                        {s.avg}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+
+                {!rankedStudentAvgs.length && (
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="px-5 py-8 text-center text-sm"
+                      style={{
+                        color: 'var(--muted-foreground)',
+                      }}
+                    >
+                      No students to rank yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
