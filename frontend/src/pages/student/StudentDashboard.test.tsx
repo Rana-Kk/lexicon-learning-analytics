@@ -219,7 +219,7 @@ render(
 )
 
 expect(
-  await screen.findByText('Good morning, Rana')
+  await screen.findByText('Hi, Rana')
 ).toBeInTheDocument()
 
 expect(
@@ -612,7 +612,7 @@ await user.click(
 )
 
 expect(
-  await screen.findByText('Good morning, Rana')
+  await screen.findByText('Hi, Rana')
 ).toBeInTheDocument()
 
 expect(mockedMe).toHaveBeenCalledTimes(2)

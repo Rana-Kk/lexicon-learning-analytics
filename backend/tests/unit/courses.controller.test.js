@@ -1,942 +1,822 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-} from 'vitest'
-
-// ============================================================
-// MOCKS
-// ============================================================
-
-const mockQuery = vi.fn()
-
-// ============================================================
-// DATABASE MOCK
-// ============================================================
+getAllCourses,
+getCourseById,
+createCourse,
+updateCourse,
+deleteCourse,
+} from '../../src/controllers/courses.controller.js';
+import { pool } from '../../src/config/db.js';
 
 vi.mock('../../src/config/db.js', () => ({
-  pool: {
-    query: mockQuery,
-  },
-}))
-
-// ============================================================
-// IMPORT CONTROLLER
-// ============================================================
-
-const {
-  getAllCourses,
-  getCourses,
-  getCourseById,
-  createCourse,
-  updateCourse,
-  deleteCourse,
-} = await import(
-  '../../src/controllers/courses.controller.js'
-)
-
-// ============================================================
-// HELPERS
-// ============================================================
+pool: {
+query: vi.fn(),
+},
+}));
 
 function createMockReq({
-  params = {},
-  body = {},
+params = {},
+body = {},
+user = {
+role: 'admin',
+sub: 1,
+},
 } = {}) {
-  return {
-    params,
-    body,
-  }
+return {
+params,
+body,
+user,
+};
 }
 
 function createMockRes() {
-  const res = {}
-
-  res.status = vi.fn().mockReturnValue(res)
-  res.json = vi.fn().mockReturnValue(res)
-
-  return res
+return {
+status: vi.fn().mockReturnThis(),
+json: vi.fn().mockReturnThis(),
+};
 }
 
-// ============================================================
-// RESET
-// ============================================================
-
+describe('Courses Controller', () => {
 beforeEach(() => {
-  vi.clearAllMocks()
-})
+vi.clearAllMocks();
+});
 
-// ============================================================
-// TESTS
-// ============================================================
+// --------------------------------------------------
+// GET ALL COURSES
+// --------------------------------------------------
 
-describe('courses.controller', () => {
+describe('getAllCourses', () => {
+it('returns all courses for admin/user', async () => {
+const courses = [
+{
+id: 2,
+name: 'Course 2',
+description: 'Description 2',
+},
+{
+id: 1,
+name: 'Course 1',
+description: 'Description 1',
+},
+];
 
-  // ==========================================================
-  // 1. GET ALL COURSES
-  // ==========================================================
+  pool.query.mockResolvedValueOnce([courses]);
 
-  describe('getAllCourses', () => {
+  const req = createMockReq({
+    user: {
+      role: 'admin',
+      sub: 1,
+    },
+  });
 
-    it(
-      'returns all courses successfully',
-      async () => {
+  const res = createMockRes();
+  const next = vi.fn();
 
-        const courses = [
-          {
-            id: 2,
-            name: 'JavaScript',
-          },
-          {
-            id: 1,
-            name: 'Python',
-          },
-        ]
+  await getAllCourses(req, res, next);
 
-        mockQuery.mockResolvedValueOnce([
-          courses,
-        ])
+  expect(pool.query).toHaveBeenCalledWith(
+    'SELECT * FROM courses ORDER BY id DESC'
+  );
 
-        const req = createMockReq()
-        const res = createMockRes()
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    count: courses.length,
+    data: courses,
+  });
 
-        await getAllCourses(
-          req,
-          res,
-          vi.fn()
-        )
+  expect(next).not.toHaveBeenCalled();
+});
 
-        expect(mockQuery).toHaveBeenCalledWith(
-          'SELECT * FROM courses ORDER BY id DESC'
-        )
+it('returns only teacher courses for teacher', async () => {
+  const courses = [
+    {
+      id: 2,
+      name: 'Teacher Course',
+      description: 'Teacher description',
+    },
+  ];
 
-        expect(res.status).toHaveBeenCalledWith(
-          200
-        )
+  pool.query.mockResolvedValueOnce([courses]);
 
-        expect(res.json).toHaveBeenCalledWith({
-          success: true,
-          count: 2,
-          data: courses,
-        })
-      }
-    )
+  const req = createMockReq({
+    user: {
+      role: 'teacher',
+      sub: 5,
+    },
+  });
 
-    it(
-      'returns an empty array when there are no courses',
-      async () => {
+  const res = createMockRes();
+  const next = vi.fn();
 
-        mockQuery.mockResolvedValueOnce([
-          [],
-        ])
+  await getAllCourses(req, res, next);
 
-        const req = createMockReq()
-        const res = createMockRes()
+  expect(pool.query).toHaveBeenCalledWith(
+    expect.stringContaining('SELECT DISTINCT c.*'),
+    [5]
+  );
 
-        await getAllCourses(
-          req,
-          res,
-          vi.fn()
-        )
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    count: courses.length,
+    data: courses,
+  });
 
-        expect(res.status).toHaveBeenCalledWith(
-          200
-        )
+  expect(next).not.toHaveBeenCalled();
+});
 
-        expect(res.json).toHaveBeenCalledWith({
-          success: true,
-          count: 0,
-          data: [],
-        })
-      }
-    )
-  })
+it('passes database errors to next', async () => {
+  const databaseError = new Error('Database error');
 
-  // ==========================================================
-  // 2. GET COURSES ALIAS
-  // ==========================================================
+  pool.query.mockRejectedValueOnce(databaseError);
 
-  describe('getCourses alias', () => {
+  const req = createMockReq({
+    user: {
+      role: 'admin',
+      sub: 1,
+    },
+  });
 
-    it(
-      'is an alias for getAllCourses',
-      () => {
+  const res = createMockRes();
+  const next = vi.fn();
 
-        expect(getCourses).toBe(
-          getAllCourses
-        )
-      }
-    )
-  })
+  await getAllCourses(req, res, next);
 
-  // ==========================================================
-  // 3. GET COURSE BY ID
-  // ==========================================================
+  expect(next).toHaveBeenCalledWith(databaseError);
+});
+ 
+});
 
-  describe('getCourseById', () => {
+// --------------------------------------------------
+// GET COURSE BY ID
+// --------------------------------------------------
 
-    it(
-      'returns a course when it exists',
-      async () => {
+describe('getCourseById', () => {
+it('returns a course by id', async () => {
+const course = {
+id: 1,
+name: 'Test Course',
+description: 'Test description',
+};
 
-        const course = {
+   pool.query.mockResolvedValueOnce([[course]]);
+
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+    user: {
+      role: 'admin',
+      sub: 1,
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await getCourseById(req, res, next);
+
+  expect(pool.query).toHaveBeenCalledWith(
+    'SELECT * FROM courses WHERE id = ?',
+    ['1']
+  );
+
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    data: course,
+  });
+
+  expect(next).not.toHaveBeenCalled();
+});
+
+it('throws 404 when course does not exist', async () => {
+  pool.query.mockResolvedValueOnce([[]]);
+
+  const req = createMockReq({
+    params: {
+      id: '999',
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await getCourseById(req, res, next);
+
+  expect(next).toHaveBeenCalledTimes(1);
+
+  const error = next.mock.calls[0][0];
+
+  expect(error.statusCode).toBe(404);
+  expect(error.message).toBe('Course not found');
+});
+
+it('throws 403 when teacher does not own the course', async () => {
+  const course = {
+    id: 1,
+    name: 'Test Course',
+    description: 'Test description',
+  };
+
+  pool.query
+    .mockResolvedValueOnce([[course]])
+    .mockResolvedValueOnce([[]]);
+
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+    user: {
+      role: 'teacher',
+      sub: 99,
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await getCourseById(req, res, next);
+
+  expect(pool.query).toHaveBeenNthCalledWith(
+    2,
+    expect.stringContaining('SELECT 1'),
+    ['1', 99]
+  );
+
+  expect(next).toHaveBeenCalledTimes(1);
+
+  const error = next.mock.calls[0][0];
+
+  expect(error.statusCode).toBe(403);
+  expect(error.message).toBe(
+    'You do not have access to this course'
+  );
+});
+
+it('allows teacher to access a course they own', async () => {
+  const course = {
+    id: 1,
+    name: 'Teacher Course',
+    description: 'Description',
+  };
+
+  pool.query
+    .mockResolvedValueOnce([[course]])
+    .mockResolvedValueOnce([[{ 1: 1 }]]);
+
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+    user: {
+      role: 'teacher',
+      sub: 5,
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await getCourseById(req, res, next);
+
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    data: course,
+  });
+
+  expect(next).not.toHaveBeenCalled();
+});
+ 
+});
+
+// --------------------------------------------------
+// CREATE COURSE
+// --------------------------------------------------
+
+describe('createCourse', () => {
+it('creates a course successfully', async () => {
+const newCourse = {
+id: 10,
+name: 'New Course',
+description: 'New description',
+start_date: '2026-09-01',
+end_date: '2026-12-31',
+};
+
+   pool.query
+    .mockResolvedValueOnce([
+      {
+        insertId: 10,
+      },
+    ])
+    .mockResolvedValueOnce([[newCourse]]);
+
+  const req = createMockReq({
+    body: {
+      name: 'New Course',
+      description: 'New description',
+      start_date: '2026-09-01',
+      end_date: '2026-12-31',
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await createCourse(req, res, next);
+
+  expect(pool.query).toHaveBeenNthCalledWith(
+    1,
+    'INSERT INTO courses (name, description, start_date, end_date) VALUES (?, ?, ?, ?)',
+    [
+      'New Course',
+      'New description',
+      '2026-09-01',
+      '2026-12-31',
+    ]
+  );
+
+  expect(pool.query).toHaveBeenNthCalledWith(
+    2,
+    'SELECT * FROM courses WHERE id = ?',
+    [10]
+  );
+
+  expect(res.status).toHaveBeenCalledWith(201);
+
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    message: 'Course created successfully',
+    data: newCourse,
+  });
+
+  expect(next).not.toHaveBeenCalled();
+});
+
+it('creates a course with null description when description is missing', async () => {
+  const newCourse = {
+    id: 11,
+    name: 'Course Without Description',
+    description: null,
+  };
+
+  pool.query
+    .mockResolvedValueOnce([
+      {
+        insertId: 11,
+      },
+    ])
+    .mockResolvedValueOnce([[newCourse]]);
+
+  const req = createMockReq({
+    body: {
+      name: 'Course Without Description',
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await createCourse(req, res, next);
+
+  expect(pool.query).toHaveBeenNthCalledWith(
+    1,
+    'INSERT INTO courses (name, description, start_date, end_date) VALUES (?, ?, ?, ?)',
+    [
+      'Course Without Description',
+      null,
+      null,
+      null,
+    ]
+  );
+
+  expect(res.status).toHaveBeenCalledWith(201);
+  expect(next).not.toHaveBeenCalled();
+});
+
+it('normalizes YYYY/MM/DD dates', async () => {
+  pool.query
+    .mockResolvedValueOnce([
+      {
+        insertId: 12,
+      },
+    ])
+    .mockResolvedValueOnce([
+      [
+        {
+          id: 12,
+          name: 'Date Course',
+        },
+      ],
+    ]);
+
+  const req = createMockReq({
+    body: {
+      name: 'Date Course',
+      start_date: '2026/09/15',
+      end_date: '2026/12/31',
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await createCourse(req, res, next);
+
+  expect(pool.query).toHaveBeenNthCalledWith(
+    1,
+    'INSERT INTO courses (name, description, start_date, end_date) VALUES (?, ?, ?, ?)',
+    [
+      'Date Course',
+      null,
+      '2026-09-15',
+      '2026-12-31',
+    ]
+  );
+});
+
+it('normalizes DD/MM/YYYY dates', async () => {
+  pool.query
+    .mockResolvedValueOnce([
+      {
+        insertId: 13,
+      },
+    ])
+    .mockResolvedValueOnce([
+      [
+        {
+          id: 13,
+          name: 'Date Course',
+        },
+      ],
+    ]);
+
+  const req = createMockReq({
+    body: {
+      name: 'Date Course',
+      start_date: '15/09/2026',
+      end_date: '31/12/2026',
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await createCourse(req, res, next);
+
+  expect(pool.query).toHaveBeenNthCalledWith(
+    1,
+    'INSERT INTO courses (name, description, start_date, end_date) VALUES (?, ?, ?, ?)',
+    [
+      'Date Course',
+      null,
+      '2026-09-15',
+      '2026-12-31',
+    ]
+  );
+});
+
+it('returns 400 when course name is missing', async () => {
+  const req = createMockReq({
+    body: {
+      description: 'Description only',
+    },
+  });
+
+  const res = createMockRes();
+  const next = vi.fn();
+
+  await createCourse(req, res, next);
+
+  expect(next).toHaveBeenCalledTimes(1);
+
+  const error = next.mock.calls[0][0];
+
+  expect(error.statusCode).toBe(400);
+  expect(error.message).toBe('Course name is required');
+
+  expect(pool.query).not.toHaveBeenCalled();
+});
+ 
+});
+
+// --------------------------------------------------
+// UPDATE COURSE
+// --------------------------------------------------
+
+describe('updateCourse', () => {
+it('updates a course successfully', async () => {
+const updatedCourse = {
+id: 1,
+name: 'Updated Course',
+description: 'Updated description',
+start_date: '2026-09-01',
+end_date: '2026-12-31',
+};
+
+   pool.query
+    .mockResolvedValueOnce([
+      [
+        {
           id: 1,
-          name: 'Python',
-          description:
-            'Python programming course',
-        }
+        },
+      ],
+    ])
+    .mockResolvedValueOnce([{}])
+    .mockResolvedValueOnce([[updatedCourse]]);
 
-        mockQuery.mockResolvedValueOnce([
-          [course],
-        ])
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+    body: {
+      name: 'Updated Course',
+      description: 'Updated description',
+      start_date: '2026-09-01',
+      end_date: '2026-12-31',
+    },
+  });
 
-        const req = createMockReq({
-          params: {
-            id: '1',
-          },
-        })
+  const res = createMockRes();
+  const next = vi.fn();
 
-        const res = createMockRes()
+  await updateCourse(req, res, next);
 
-        await getCourseById(
-          req,
-          res,
-          vi.fn()
-        )
+  expect(pool.query).toHaveBeenNthCalledWith(
+    1,
+    'SELECT id FROM courses WHERE id = ?',
+    ['1']
+  );
 
-        expect(mockQuery).toHaveBeenCalledWith(
-          'SELECT * FROM courses WHERE id = ?',
-          ['1']
-        )
+  expect(pool.query).toHaveBeenNthCalledWith(
+    2,
+    expect.stringContaining('UPDATE courses SET'),
+    [
+      'Updated Course',
+      'Updated description',
+      '2026-09-01',
+      '2026-12-31',
+      '1',
+    ]
+  );
 
-        expect(res.status).toHaveBeenCalledWith(
-          200
-        )
+  expect(pool.query).toHaveBeenNthCalledWith(
+    3,
+    'SELECT * FROM courses WHERE id = ?',
+    ['1']
+  );
 
-        expect(res.json).toHaveBeenCalledWith({
-          success: true,
-          data: course,
-        })
-      }
-    )
+  expect(res.status).toHaveBeenCalledWith(200);
 
-    it(
-      'throws 404 when course does not exist',
-      async () => {
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    message: 'Course updated successfully',
+    data: updatedCourse,
+  });
 
-        mockQuery.mockResolvedValueOnce([
-          [],
-        ])
+  expect(next).not.toHaveBeenCalled();
+});
 
-        const req = createMockReq({
-          params: {
-            id: '999',
-          },
-        })
+it('updates only the provided fields', async () => {
+  const updatedCourse = {
+    id: 1,
+    name: 'Updated Name',
+    description: 'Old description',
+  };
 
-        const res = createMockRes()
-        const next = vi.fn()
-
-        await getCourseById(
-          req,
-          res,
-          next
-        )
-
-        expect(next).toHaveBeenCalledTimes(
-          1
-        )
-
-        const error =
-          next.mock.calls[0][0]
-
-        expect(error.statusCode).toBe(404)
-
-        expect(error.message).toBe(
-          'Course not found'
-        )
-
-        expect(res.status).not.toHaveBeenCalled()
-      }
-    )
-  })
-
-  // ==========================================================
-  // 4. CREATE COURSE
-  // ==========================================================
-
-  describe('createCourse', () => {
-
-    it(
-      'creates a course with YYYY-MM-DD dates',
-      async () => {
-
-        const newCourse = {
-          id: 10,
-          name: 'React',
-          description:
-            'React course',
-          start_date:
-            '2026-01-10',
-          end_date:
-            '2026-03-10',
-        }
-
-        mockQuery
-          .mockResolvedValueOnce([
-            {
-              insertId: 10,
-            },
-          ])
-          .mockResolvedValueOnce([
-            [newCourse],
-          ])
-
-        const req = createMockReq({
-          body: {
-            name: 'React',
-            description:
-              'React course',
-            start_date:
-              '2026-01-10',
-            end_date:
-              '2026-03-10',
-          },
-        })
-
-        const res = createMockRes()
-
-        await createCourse(
-          req,
-          res,
-          vi.fn()
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          1,
-          expect.stringContaining(
-            'INSERT INTO courses'
-          ),
-          [
-            'React',
-            'React course',
-            '2026-01-10',
-            '2026-03-10',
-          ]
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          2,
-          'SELECT * FROM courses WHERE id = ?',
-          [10]
-        )
-
-        expect(res.status).toHaveBeenCalledWith(
-          201
-        )
-
-        expect(res.json).toHaveBeenCalledWith({
-          success: true,
-          message:
-            'Course created successfully',
-          data: newCourse,
-        })
-      }
-    )
-
-    it(
-      'creates a course with DD-MM-YYYY dates',
-      async () => {
-
-        mockQuery
-          .mockResolvedValueOnce([
-            {
-              insertId: 11,
-            },
-          ])
-          .mockResolvedValueOnce([
-            [
-              {
-                id: 11,
-                name: 'Node.js',
-              },
-            ],
-          ])
-
-        const req = createMockReq({
-          body: {
-            name: 'Node.js',
-            start_date:
-              '15-01-2026',
-            end_date:
-              '20-02-2026',
-          },
-        })
-
-        const res = createMockRes()
-
-        await createCourse(
-          req,
-          res,
-          vi.fn()
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          1,
-          expect.stringContaining(
-            'INSERT INTO courses'
-          ),
-          [
-            'Node.js',
-            null,
-            '2026-01-15',
-            '2026-02-20',
-          ]
-        )
-      }
-    )
-
-    it(
-      'creates a course with YYYY-DD-MM format when first value is greater than 12',
-      async () => {
-
-        mockQuery
-          .mockResolvedValueOnce([
-            {
-              insertId: 12,
-            },
-          ])
-          .mockResolvedValueOnce([
-            [
-              {
-                id: 12,
-                name: 'Java',
-              },
-            ],
-          ])
-
-        const req = createMockReq({
-          body: {
-            name: 'Java',
-            start_date:
-              '2026-15-02',
-          },
-        })
-
-        const res = createMockRes()
-
-        await createCourse(
-          req,
-          res,
-          vi.fn()
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          1,
-          expect.stringContaining(
-            'INSERT INTO courses'
-          ),
-          [
-            'Java',
-            null,
-            '2026-02-15',
-            null,
-          ]
-        )
-      }
-    )
-
-    it(
-      'creates a course with null dates when dates are empty',
-      async () => {
-
-        mockQuery
-          .mockResolvedValueOnce([
-            {
-              insertId: 13,
-            },
-          ])
-          .mockResolvedValueOnce([
-            [
-              {
-                id: 13,
-                name: 'SQL',
-              },
-            ],
-          ])
-
-        const req = createMockReq({
-          body: {
-            name: 'SQL',
-            description: '',
-            start_date: '',
-            end_date: '',
-          },
-        })
-
-        const res = createMockRes()
-
-        await createCourse(
-          req,
-          res,
-          vi.fn()
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          1,
-          expect.stringContaining(
-            'INSERT INTO courses'
-          ),
-          [
-            'SQL',
-            null,
-            null,
-            null,
-          ]
-        )
-      }
-    )
-
-    it(
-      'throws 400 when course name is missing',
-      async () => {
-
-        const req = createMockReq({
-          body: {
-            description:
-              'Some description',
-          },
-        })
-
-        const res = createMockRes()
-        const next = vi.fn()
-
-        await createCourse(
-          req,
-          res,
-          next
-        )
-
-        expect(next).toHaveBeenCalledTimes(
-          1
-        )
-
-        const error =
-          next.mock.calls[0][0]
-
-        expect(error.statusCode).toBe(400)
-
-        expect(error.message).toBe(
-          'Course name is required'
-        )
-
-        expect(mockQuery).not.toHaveBeenCalled()
-      }
-    )
-  })
-
-  // ==========================================================
-  // 5. UPDATE COURSE
-  // ==========================================================
-
-  describe('updateCourse', () => {
-
-    it(
-      'updates an existing course successfully',
-      async () => {
-
-        const updatedCourse = {
+  pool.query
+    .mockResolvedValueOnce([
+      [
+        {
           id: 1,
-          name: 'Advanced Python',
-          description:
-            'Updated description',
-          start_date:
-            '2026-01-10',
-          end_date:
-            '2026-06-20',
-        }
+        },
+      ],
+    ])
+    .mockResolvedValueOnce([{}])
+    .mockResolvedValueOnce([[updatedCourse]]);
 
-        mockQuery
-          // Existing course check
-          .mockResolvedValueOnce([
-            [{ id: 1 }],
-          ])
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+    body: {
+      name: 'Updated Name',
+    },
+  });
 
-          // UPDATE
-          .mockResolvedValueOnce([
-            {
-              affectedRows: 1,
-            },
-          ])
+  const res = createMockRes();
+  const next = vi.fn();
 
-          // SELECT updated
-          .mockResolvedValueOnce([
-            [updatedCourse],
-          ])
+  await updateCourse(req, res, next);
 
-        const req = createMockReq({
-          params: {
-            id: '1',
-          },
+  expect(pool.query).toHaveBeenNthCalledWith(
+    2,
+    expect.stringContaining('UPDATE courses SET'),
+    [
+      'Updated Name',
+      undefined,
+      null,
+      null,
+      '1',
+    ]
+  );
 
-          body: {
-            name:
-              'Advanced Python',
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(next).not.toHaveBeenCalled();
+});
 
-            description:
-              'Updated description',
+it('normalizes dates when updating a course', async () => {
+  const updatedCourse = {
+    id: 1,
+    name: 'Course',
+    start_date: '2026-09-15',
+    end_date: '2026-12-31',
+  };
 
-            start_date:
-              '10-01-2026',
-
-            end_date:
-              '20-06-2026',
-          },
-        })
-
-        const res = createMockRes()
-
-        await updateCourse(
-          req,
-          res,
-          vi.fn()
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          1,
-          'SELECT id FROM courses WHERE id = ?',
-          ['1']
-        )
-
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          2,
-          expect.stringContaining(
-            'UPDATE courses SET'
-          ),
-          [
-            'Advanced Python',
-            'Updated description',
-            '2026-01-10',
-            '2026-06-20',
-            '1',
-          ]
-        )
-
-        expect(res.status).toHaveBeenCalledWith(
-          200
-        )
-
-        expect(res.json).toHaveBeenCalledWith({
-          success: true,
-          message:
-            'Course updated successfully',
-          data: updatedCourse,
-        })
-      }
-    )
-
-    it(
-      'keeps dates unchanged when dates are not provided',
-      async () => {
-
-        const updatedCourse = {
+  pool.query
+    .mockResolvedValueOnce([
+      [
+        {
           id: 1,
-          name: 'Python',
-        }
+        },
+      ],
+    ])
+    .mockResolvedValueOnce([{}])
+    .mockResolvedValueOnce([[updatedCourse]]);
 
-        mockQuery
-          .mockResolvedValueOnce([
-            [{ id: 1 }],
-          ])
-          .mockResolvedValueOnce([
-            {
-              affectedRows: 1,
-            },
-          ])
-          .mockResolvedValueOnce([
-            [updatedCourse],
-          ])
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+    body: {
+      start_date: '15/09/2026',
+      end_date: '31/12/2026',
+    },
+  });
 
-        const req = createMockReq({
-          params: {
-            id: '1',
-          },
+  const res = createMockRes();
+  const next = vi.fn();
 
-          body: {
-            name: 'Python',
-          },
-        })
+  await updateCourse(req, res, next);
 
-        const res = createMockRes()
+  expect(pool.query).toHaveBeenNthCalledWith(
+    2,
+    expect.stringContaining('UPDATE courses SET'),
+    [
+      undefined,
+      undefined,
+      '2026-09-15',
+      '2026-12-31',
+      '1',
+    ]
+  );
+});
 
-        await updateCourse(
-          req,
-          res,
-          vi.fn()
-        )
+it('throws 404 when updating a non-existing course', async () => {
+  pool.query.mockResolvedValueOnce([[]]);
 
-        const updateCall =
-          mockQuery.mock.calls[1]
+  const req = createMockReq({
+    params: {
+      id: '999',
+    },
+  });
 
-        expect(
-          updateCall[1]
-        ).toEqual([
-          'Python',
-          undefined,
-          null,
-          null,
-          '1',
-        ])
-      }
-    )
+  const res = createMockRes();
+  const next = vi.fn();
 
-    it(
-      'normalizes provided update dates',
-      async () => {
+  await updateCourse(req, res, next);
 
-        mockQuery
-          .mockResolvedValueOnce([
-            [{ id: 1 }],
-          ])
-          .mockResolvedValueOnce([
-            {
-              affectedRows: 1,
-            },
-          ])
-          .mockResolvedValueOnce([
-            [
-              {
-                id: 1,
-              },
-            ],
-          ])
+  expect(pool.query).toHaveBeenCalledWith(
+    'SELECT id FROM courses WHERE id = ?',
+    ['999']
+  );
 
-        const req = createMockReq({
-          params: {
-            id: '1',
-          },
+  expect(next).toHaveBeenCalledTimes(1);
 
-          body: {
-            start_date:
-              '05/03/2026',
+  const error = next.mock.calls[0][0];
 
-            end_date:
-              '2026/30/04',
-          },
-        })
+  expect(error.statusCode).toBe(404);
+  expect(error.message).toBe('Course not found');
+});
 
-        const res = createMockRes()
+it('passes database errors to next', async () => {
+  const databaseError = new Error('Database error');
 
-        await updateCourse(
-          req,
-          res,
-          vi.fn()
-        )
+  pool.query.mockRejectedValueOnce(databaseError);
 
-        const updateCall =
-          mockQuery.mock.calls[1]
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+  });
 
-        expect(
-          updateCall[1]
-        ).toEqual([
-          undefined,
-          undefined,
-          '2026-03-05',
-          '2026-04-30',
-          '1',
-        ])
-      }
-    )
+  const res = createMockRes();
+  const next = vi.fn();
 
-    it(
-      'throws 404 when updating a non-existing course',
-      async () => {
+  await updateCourse(req, res, next);
 
-        mockQuery.mockResolvedValueOnce([
-          [],
-        ])
+  expect(next).toHaveBeenCalledWith(databaseError);
+});
+ 
+});
 
-        const req = createMockReq({
-          params: {
-            id: '999',
-          },
+// --------------------------------------------------
+// DELETE COURSE
+// --------------------------------------------------
 
-          body: {
-            name:
-              'Does Not Exist',
-          },
-        })
+describe('deleteCourse', () => {
+it('deletes a course successfully', async () => {
+pool.query
+.mockResolvedValueOnce([
+[
+{
+id: 1,
+},
+],
+])
+.mockResolvedValueOnce([{}]);
 
-        const res = createMockRes()
-        const next = vi.fn()
+   const req = createMockReq({
+    params: {
+      id: '1',
+    },
+  });
 
-        await updateCourse(
-          req,
-          res,
-          next
-        )
+  const res = createMockRes();
+  const next = vi.fn();
 
-        expect(next).toHaveBeenCalledTimes(
-          1
-        )
+  await deleteCourse(req, res, next);
 
-        const error =
-          next.mock.calls[0][0]
+  expect(pool.query).toHaveBeenNthCalledWith(
+    1,
+    'SELECT id FROM courses WHERE id = ?',
+    ['1']
+  );
 
-        expect(error.statusCode).toBe(404)
+  expect(pool.query).toHaveBeenNthCalledWith(
+    2,
+    'DELETE FROM courses WHERE id = ?',
+    ['1']
+  );
 
-        expect(error.message).toBe(
-          'Course not found'
-        )
+  expect(res.status).toHaveBeenCalledWith(200);
 
-        expect(mockQuery).toHaveBeenCalledTimes(
-          1
-        )
-      }
-    )
-  })
+  expect(res.json).toHaveBeenCalledWith({
+    success: true,
+    message: 'Course deleted successfully',
+  });
 
-  // ==========================================================
-  // 6. DELETE COURSE
-  // ==========================================================
+  expect(next).not.toHaveBeenCalled();
+});
 
-  describe('deleteCourse', () => {
+it('throws 404 when deleting a non-existing course', async () => {
+  pool.query.mockResolvedValueOnce([[]]);
 
-    it(
-      'deletes an existing course successfully',
-      async () => {
+  const req = createMockReq({
+    params: {
+      id: '999',
+    },
+  });
 
-        mockQuery
-          // Existing check
-          .mockResolvedValueOnce([
-            [{ id: 1 }],
-          ])
+  const res = createMockRes();
+  const next = vi.fn();
 
-          // DELETE
-          .mockResolvedValueOnce([
-            {
-              affectedRows: 1,
-            },
-          ])
+  await deleteCourse(req, res, next);
 
-        const req = createMockReq({
-          params: {
-            id: '1',
-          },
-        })
+  expect(pool.query).toHaveBeenCalledWith(
+    'SELECT id FROM courses WHERE id = ?',
+    ['999']
+  );
 
-        const res = createMockRes()
+  expect(next).toHaveBeenCalledTimes(1);
 
-        await deleteCourse(
-          req,
-          res,
-          vi.fn()
-        )
+  const error = next.mock.calls[0][0];
 
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          1,
-          'SELECT id FROM courses WHERE id = ?',
-          ['1']
-        )
+  expect(error.statusCode).toBe(404);
+  expect(error.message).toBe('Course not found');
+});
 
-        expect(mockQuery).toHaveBeenNthCalledWith(
-          2,
-          'DELETE FROM courses WHERE id = ?',
-          ['1']
-        )
+it('passes database errors to next', async () => {
+  const databaseError = new Error('Database error');
 
-        expect(res.status).toHaveBeenCalledWith(
-          200
-        )
+  pool.query.mockRejectedValueOnce(databaseError);
 
-        expect(res.json).toHaveBeenCalledWith({
-          success: true,
-          message:
-            'Course deleted successfully',
-        })
-      }
-    )
+  const req = createMockReq({
+    params: {
+      id: '1',
+    },
+  });
 
-    it(
-      'throws 404 when deleting a non-existing course',
-      async () => {
+  const res = createMockRes();
+  const next = vi.fn();
 
-        mockQuery.mockResolvedValueOnce([
-          [],
-        ])
+  await deleteCourse(req, res, next);
 
-        const req = createMockReq({
-          params: {
-            id: '999',
-          },
-        })
+  expect(next).toHaveBeenCalledWith(databaseError);
+});
 
-        const res = createMockRes()
-        const next = vi.fn()
-
-        await deleteCourse(
-          req,
-          res,
-          next
-        )
-
-        expect(next).toHaveBeenCalledTimes(
-          1
-        )
-
-        const error =
-          next.mock.calls[0][0]
-
-        expect(error.statusCode).toBe(404)
-
-        expect(error.message).toBe(
-          'Course not found'
-        )
-
-        expect(mockQuery).toHaveBeenCalledTimes(
-          1
-        )
-
-        expect(res.status).not.toHaveBeenCalled()
-      }
-    )
-  })
-
-  // ==========================================================
-  // 7. DATABASE ERROR HANDLING
-  // ==========================================================
-
-  describe('database errors', () => {
-
-    it(
-      'passes database errors to next',
-      async () => {
-
-        const databaseError =
-          new Error(
-            'Database connection failed'
-          )
-
-        mockQuery.mockRejectedValueOnce(
-          databaseError
-        )
-
-        const req = createMockReq()
-        const res = createMockRes()
-        const next = vi.fn()
-
-        await getAllCourses(
-          req,
-          res,
-          next
-        )
-
-        expect(next).toHaveBeenCalledWith(
-          databaseError
-        )
-      }
-    )
-  })
-})
+});
+});
