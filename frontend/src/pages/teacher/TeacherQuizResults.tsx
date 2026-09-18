@@ -384,48 +384,57 @@ export default function TeacherQuizResults() {
                 Student Comparison
               </h2>
 
-              <ResponsiveContainer
-                width="100%"
-                height={Math.max(200, rankedStudentAvgs.length * 32)}
+              <div
+                style={{
+                  maxHeight: 240,
+                  overflowY: rankedStudentAvgs.length > 8 ? 'auto' : 'visible',
+                }}
               >
-                <BarChart
-                  data={rankedStudentAvgs}
-                  layout="vertical"
-                  margin={{ left: 8, right: 16 }}
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(200, rankedStudentAvgs.length * 26)}
                 >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="var(--border)"
-                    horizontal={false}
-                  />
+                  <BarChart
+                    data={rankedStudentAvgs}
+                    layout="vertical"
+                    margin={{ left: 8, right: 16 }}
+                    barCategoryGap="25%"
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--border)"
+                      horizontal={false}
+                    />
 
-                  <XAxis
-                    type="number"
-                    domain={[0, 100]}
-                    tick={{ fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                    <XAxis
+                      type="number"
+                      domain={[0, 100]}
+                      tick={{ fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
 
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    tick={{ fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={110}
-                  />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tick={{ fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={110}
+                    />
 
-                  <Tooltip />
+                    <Tooltip />
 
-                  <Bar
-                    dataKey="avg"
-                    name="Avg Score %"
-                    fill="#0891B2"
-                    radius={[0, 4, 4, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+                    <Bar
+                      dataKey="avg"
+                      name="Avg Score %"
+                      fill="#0891B2"
+                      radius={[0, 4, 4, 0]}
+                      barSize={14}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
