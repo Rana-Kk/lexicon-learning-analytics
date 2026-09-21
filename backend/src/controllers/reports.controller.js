@@ -150,6 +150,30 @@ export const studentReport = asyncHandler(async (req, res) => {
   )
 
   // ============================================================
+  // FINAL GRADE
+  // ============================================================
+
+  const [finalGrades] = await pool.query(
+    `
+      SELECT
+        fg.score,
+        fg.comment,
+        fg.group_id,
+        g.name AS group_name,
+        fg.updated_at
+      FROM final_grades fg
+      LEFT JOIN groups g
+        ON g.id = fg.group_id
+      WHERE fg.student_id = ?
+      ORDER BY fg.updated_at DESC
+      LIMIT 1
+    `,
+    [sid]
+  )
+
+  const finalGrade = finalGrades[0] || null
+
+  // ============================================================
   // ASSIGNMENT CHECKLIST EVALUATIONS
   //
   // IMPORTANT:
@@ -397,6 +421,8 @@ export const studentReport = asyncHandler(async (req, res) => {
       certificates,
 
       assignmentChecklistEvaluations,
+
+      final_grade: finalGrade,
     },
   })
 })
