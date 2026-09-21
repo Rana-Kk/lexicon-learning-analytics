@@ -372,6 +372,9 @@ describe('TeacherReports - generating a report', () => {
     expect(texts).toContain('No competency data.')
     expect(texts).toContain('No feedback recorded.')
     expect(texts).toContain('No certificates issued.')
+    expect(texts).toContain(
+      'No final grade has been recorded yet.'
+    )
   })
 
   it('writes populated rows for attendance, scores, quizzes, competencies, feedback and certificates', async () => {
@@ -389,6 +392,21 @@ describe('TeacherReports - generating a report', () => {
             attendance_date: '2024-01-10',
             session: 'morning',
             status: 'present',
+          },
+          {
+            attendance_date: '2024-01-10',
+            session: 'afternoon',
+            status: 'late',
+          },
+          {
+            attendance_date: '2024-01-11',
+            session: 'morning',
+            status: 'absent',
+          },
+          {
+            attendance_date: '2024-01-11',
+            session: 'afternoon',
+            status: 'excused',
           },
         ],
 
@@ -434,6 +452,11 @@ describe('TeacherReports - generating a report', () => {
             expiry_date: '2026-01-01',
           },
         ],
+
+        final_grade: {
+          score: 92,
+          comment: 'Excellent progress throughout the term.',
+        },
       },
     } as any)
 
@@ -453,8 +476,16 @@ describe('TeacherReports - generating a report', () => {
 
     const texts = allTextCalls()
 
+    expect(texts).toContain('92 / 100')
+
     expect(texts).toContain(
-      '2024-01-10 · morning · present'
+      'Excellent progress throughout the term.'
+    )
+
+    expect(texts).toContain('50%')
+
+    expect(texts).toContain(
+      '2 of 4 sessions attended (present or late)'
     )
 
     expect(texts).toContain(

@@ -414,14 +414,44 @@ function buildPdf(
     if (!rows.length) {
       line('No attendance records.')
     } else {
-      rows.slice(0, 60).forEach(
-        (r: any) => {
-          line(
-            `${r.attendance_date} · ${
-              r.session || '—'
-            } · ${r.status}`
-          )
-        }
+      // A session-by-session list got long and hard to scan — a
+      // summary percentage (present/late counted as attended, same
+      // definition used on the student's live overview page) reads
+      // better in a report than dozens of individual date lines.
+      const attended =
+        rows.filter(
+          (r: any) =>
+            r.status === 'present' ||
+            r.status === 'late'
+        ).length
+
+      const total = rows.length
+
+      const pct =
+        total > 0
+          ? Math.round(
+              (attended / total) * 100
+            )
+          : 0
+
+      doc.setFont(
+        'helvetica',
+        'bold'
+      )
+
+      doc.setFontSize(11)
+
+      line(`${pct}%`)
+
+      doc.setFont(
+        'helvetica',
+        'normal'
+      )
+
+      doc.setFontSize(9)
+
+      line(
+        `${attended} of ${total} sessions attended (present or late)`
       )
     }
 

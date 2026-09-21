@@ -207,13 +207,30 @@ export const studentReport = asyncHandler(async (req, res) => {
 
           FROM assessment_submissions
 
+          -- Team assessments store the submission under team_id with
+          -- student_id NULL, not under the individual student — matching
+          -- only student_id here silently dropped every team submission's
+          -- checklist data (they still had a final score via
+          -- assessment_scores, which IS scoped per-student, so only the
+          -- checklist table looked empty while everything else looked
+          -- normal).
           WHERE student_id = ?
+            OR team_id IN (
+              SELECT team_id
+              FROM team_members
+              WHERE student_id = ?
+            )
 
           GROUP BY assessment_id
         ) latestSubmission
           ON latestSubmission.latest_submission_id = s1.id
 
         WHERE s1.student_id = ?
+          OR s1.team_id IN (
+            SELECT team_id
+            FROM team_members
+            WHERE student_id = ?
+          )
       ) latestSubmission
         ON latestSubmission.assessment_id = a.id
 
@@ -268,6 +285,8 @@ export const studentReport = asyncHandler(async (req, res) => {
         c.id ASC
     `,
     [
+      sid,
+      sid,
       sid,
       sid,
       sid,
