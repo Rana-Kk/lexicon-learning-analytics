@@ -34,13 +34,20 @@ export const getTasks = asyncHandler(async (req, res) => {
     return res.json({ success: true, data: rows });
   }
 
-  // student — active tasks assigned to their own team(s), same pattern as getMyTeam
+  // student — all tasks (active AND closed) assigned to their own team(s),
+  // same pattern as getMyTeam. Previously this hard-filtered to
+  // status='active', so once a teacher closed a task it vanished from the
+  // student's list entirely — they lost access to the task's own topic
+  // even though the peer-evaluation results for it were still reachable
+  // elsewhere. The frontend already renders an Active/Closed badge and
+  // disables further evaluation once closed, so it only needed the full
+  // list to work correctly.
   const [rows] = await pool.query(
     `SELECT DISTINCT t.id, t.title, t.description, t.status, t.created_at
      FROM tasks t
      JOIN task_teams tt ON tt.task_id=t.id
      JOIN team_members tm ON tm.team_id=tt.team_id
-     WHERE tm.student_id=? AND t.status='active'
+     WHERE tm.student_id=?
      ORDER BY t.created_at DESC`,
     [userId]
   );

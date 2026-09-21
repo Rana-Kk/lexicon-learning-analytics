@@ -55,6 +55,12 @@ const SECTIONS = [
     icon: '🏆',
     desc: 'Issued certificates and expiry dates',
   },
+  {
+    id: 'finalGrade',
+    label: 'Final Grade',
+    icon: '🎓',
+    desc: 'End-of-term final grade and comment',
+  },
 ] as const
 
 type SectionId =
@@ -1090,6 +1096,51 @@ function buildPdf(
           )
         }
       )
+    }
+  }
+
+  // ============================================================
+  // FINAL GRADE
+  // ============================================================
+
+  if (
+    included.has('finalGrade')
+  ) {
+    heading('Final Grade')
+
+    const finalGrade =
+      data.final_grade
+
+    if (!finalGrade) {
+      line('No final grade has been recorded yet.')
+    } else {
+      doc.setFont(
+        'helvetica',
+        'bold'
+      )
+
+      doc.setFontSize(11)
+
+      ensureSpace(8)
+
+      doc.text(
+        `${finalGrade.score} / 100`,
+        marginX,
+        y
+      )
+
+      y += 7
+
+      doc.setFont(
+        'helvetica',
+        'normal'
+      )
+
+      doc.setFontSize(9)
+
+      if (finalGrade.comment) {
+        line(finalGrade.comment)
+      }
     }
   }
 
