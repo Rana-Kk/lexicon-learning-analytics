@@ -42,14 +42,13 @@ export const getAllSubmissions = asyncHandler(async (req, res) => {
     JOIN assessments a
       ON a.id = s.assessment_id
 
-    LEFT JOIN ai_evaluations latest_eval
-      ON latest_eval.id = (
-        SELECT ae.id
-        FROM ai_evaluations ae
-        WHERE ae.submission_id = s.id
-        ORDER BY ae.id DESC
-        LIMIT 1
-      )
+    LEFT JOIN (
+  SELECT submission_id, MAX(id) AS max_id
+  FROM ai_evaluations
+  GROUP BY submission_id
+) le ON le.submission_id = s.id
+LEFT JOIN ai_evaluations latest_eval
+  ON latest_eval.id = le.max_id
 
     WHERE 1=1
   `;

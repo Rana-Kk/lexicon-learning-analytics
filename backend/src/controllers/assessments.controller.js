@@ -290,14 +290,13 @@ END AS rejection_comment
   LEFT JOIN users submitter
     ON submitter.id = s.submitted_by
 
-  LEFT JOIN ai_evaluations latest_eval
-    ON latest_eval.id = (
-      SELECT ae.id
-      FROM ai_evaluations ae
-      WHERE ae.submission_id = s.id
-      ORDER BY ae.id DESC
-      LIMIT 1
-    )
+  LEFT JOIN (
+  SELECT submission_id, MAX(id) AS max_id
+  FROM ai_evaluations
+  GROUP BY submission_id
+) le ON le.submission_id = s.id
+LEFT JOIN ai_evaluations latest_eval
+  ON latest_eval.id = le.max_id
     AND s.status = 'rejected'
 
   ORDER BY a.due_date ASC, a.id DESC
