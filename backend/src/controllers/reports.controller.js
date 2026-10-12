@@ -162,8 +162,8 @@ export const studentReport = asyncHandler(async (req, res) => {
         g.name AS group_name,
         fg.updated_at
       FROM final_grades fg
-      LEFT JOIN groups g
-        ON g.id = fg.group_id
+     LEFT JOIN student_groups g
+      ON g.id = fg.group_id
       WHERE fg.student_id = ?
       ORDER BY fg.updated_at DESC
       LIMIT 1
