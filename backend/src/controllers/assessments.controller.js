@@ -452,14 +452,13 @@ const totalStudents = Number(
 
     FROM assessment_submissions s
 
-    LEFT JOIN ai_evaluations ae
-      ON ae.id = (
-        SELECT id
-        FROM ai_evaluations
-        WHERE submission_id = s.id
-        ORDER BY id DESC
-        LIMIT 1
-      )
+    LEFT JOIN (
+  SELECT submission_id, MAX(id) AS max_id
+  FROM ai_evaluations
+  GROUP BY submission_id
+) le ON le.submission_id = s.id
+LEFT JOIN ai_evaluations ae
+  ON ae.id = le.max_id
 
     WHERE s.assessment_id = ?
     `,
