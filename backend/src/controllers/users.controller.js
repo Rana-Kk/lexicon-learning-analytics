@@ -830,18 +830,18 @@ export const getStudentAcademicOverview = asyncHandler(async (req, res) => {
 
         FROM assessment_checklist_criteria acc
 
-        LEFT JOIN assessment_submissions sub
-          ON sub.assessment_id = acc.assessment_id
-         AND (
-           sub.student_id = ?
-           OR sub.team_id IN (
-             SELECT tm.team_id
-             FROM team_members tm
-             WHERE tm.student_id = ?
-           )
-         )
-
-        LEFT JOIN ai_evaluations ae
+LEFT JOIN (
+  SELECT s2.*
+  FROM assessment_submissions s2
+  WHERE s2.student_id = ?
+     OR s2.team_id IN (
+       SELECT tm.team_id
+       FROM team_members tm
+       WHERE tm.student_id = ?
+     )
+) sub
+  ON sub.assessment_id = acc.assessment_id
+          LEFT JOIN ai_evaluations ae
           ON ae.submission_id = sub.id
 
         LEFT JOIN assessment_checklist_results acr
